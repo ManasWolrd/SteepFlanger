@@ -110,7 +110,7 @@ jobs:
 
       - name: Generate Build Files
         run: |
-          cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_STANDALONE=OFF -DBUILD_IN_CI=1 -S . -B ./build
+          cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_STANDALONE=OFF -DCPP_SIMD_DETECTOR_BUILD_EXAMPLES=OFF -DBUILD_IN_CI=1 -S . -B ./build
 
       - name: Build Project
         run: |
