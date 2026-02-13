@@ -1,145 +1,383 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "global.hpp"
 
 //==============================================================================
-EmptyAudioProcessor::EmptyAudioProcessor()
-    : AudioProcessor(BusesProperties()
-#if !JucePlugin_IsMidiEffect
-#if !JucePlugin_IsSynth
-                         .withInput("Input", juce::AudioChannelSet::stereo(), true)
-#endif
-                         .withOutput("Output", juce::AudioChannelSet::stereo(), true)
-#endif
-      ) {
+SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
+     : AudioProcessor (BusesProperties()
+                     #if ! JucePlugin_IsMidiEffect
+                      #if ! JucePlugin_IsSynth
+                       .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
+                      #endif
+                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                     #endif
+                       )
+{
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
-    value_tree_ = std::make_unique<juce::AudioProcessorValueTreeState>(*this, nullptr, kParameterValueTreeIdentify,
-                                                                       std::move(layout));
+    // lfo
+    {
+        auto p = std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"delay", 1},
+            "delay",
+            juce::NormalisableRange<float>{0.0f, 20.0f, 0.01f},
+            1.0f
+        );
+        param_delay_ms_ = p.get();
+        layout.add(std::move(p));
+    }
+    {
+        auto p = std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"depth", 1},
+            "depth",
+            juce::NormalisableRange<float>{0.0f, 10.0f, 0.01f},
+            1.0f
+        );
+        param_delay_depth_ms_ = p.get();
+        layout.add(std::move(p));
+    }
+    {
+        auto[pfreq, ptype] = delay_lfo_state_.Build("speed", 0, 10, 0.01f, 0.4f, true, "0", "1/64");
+        layout.add(std::move(pfreq));
+        layout.add(std::move(ptype));
+    }
+    {
+        auto p = std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"phase", 1},
+            "phase",
+            juce::NormalisableRange<float>{0.0f, 1.0f, 0.01f},
+            0.03f
+        );
+        param_lfo_phase_ = p.get();
+        layout.add(std::move(p));
+    }
+
+    // fir design
+    {
+        auto p = std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"cutoff", 1},
+            "cutoff",
+            juce::NormalisableRange<float>{0.01f, 3.0f, 0.01f},
+            std::numbers::pi_v<float> / 2
+        );
+        param_fir_cutoff_ = p.get();
+        param_listener_.Add(p, [this](float) {
+            dsp_param_.is_using_custom_ = false;
+            dsp_param_.should_update_fir_ = true;
+        });
+        layout.add(std::move(p));
+    }
+    {
+        auto p = std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"coeff_len", 1},
+            "coeff_len",
+            juce::NormalisableRange<float>{4.0f, static_cast<float>(global::kMaxCoeffLen), 1.0f},
+            8.0f
+        );
+        param_fir_coeff_len_ = p.get();
+        param_listener_.Add(p, [this](float) {
+            dsp_param_.should_update_fir_ = true;
+        });
+        layout.add(std::move(p));
+    }
+    {
+        auto p = std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"side_lobe", 1},
+            "side_lobe",
+            juce::NormalisableRange<float>{20.0f, 100.0f, 0.1f},
+            40.0f
+        );
+        param_fir_side_lobe_ = p.get();
+        param_listener_.Add(p, [this](float) {
+            dsp_param_.is_using_custom_ = false;
+            dsp_param_.should_update_fir_ = true;
+        });
+        layout.add(std::move(p));
+    }
+    {
+        auto p = std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{"minum_phase", 1},
+            "minum_phase",
+            false
+        );
+        param_fir_min_phase_ = p.get();
+        param_listener_.Add(p, [this](bool) {
+            dsp_param_.should_update_fir_ = true;
+        });
+        layout.add(std::move(p));
+    }
+    {
+        auto p = std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{"highpass", 1},
+            "highpass",
+            false
+        );
+        param_fir_highpass_ = p.get();
+        param_listener_.Add(p, [this](bool) {
+            dsp_param_.is_using_custom_ = false;
+            dsp_param_.should_update_fir_ = true;
+        });
+        layout.add(std::move(p));
+    }
+    {
+        auto p = std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"drywet", 1},
+            "drywet",
+            0.0f, 1.0f, 1.0f
+        );
+        param_drywet_ = p.get();
+        layout.add(std::move(p));
+    }
+
+    // feedback
+    {
+        auto p = std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"fb_value", 1},
+            "fb_value",
+            juce::NormalisableRange<float>{-0.95f, 0.95f, 0.01f},
+            0.0f
+        );
+        param_feedback_ = p.get();
+        layout.add(std::move(p));
+    }
+    {
+        auto p = std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"fb_damp", 1},
+            "fb_damp",
+            0.0f, 140.0f,
+            90.0f
+        );
+        param_damp_pitch_ = p.get();
+        layout.add(std::move(p));
+    }
+
+    // barberpole
+    {
+        auto p = std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"barber_phase", 1},
+            "barber_phase",
+            juce::NormalisableRange<float>{0.0f, 1.0f, 0.01f},
+            0.0f
+        );
+        param_barber_phase_ = p.get();
+        layout.add(std::move(p));
+    }
+    {
+        auto p = std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"barber_stereo", 1},
+            "barber_stereo",
+            juce::NormalisableRange<float>{0.0f, 1.0f, 0.01f},
+            0.0f
+        );
+        param_barber_stereo_ = p.get();
+        layout.add(std::move(p));
+    }
+    {
+        auto[p, p2] = barber_lfo_state_.Build("barber_speed", -10.0f, 10.0f, 0.01f, 0.4f, true, "-1/64", "1/64");
+        layout.add(std::move(p));
+        layout.add(std::move(p2));
+    }
+    {
+        auto p = std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{"barber_enable", 1},
+            "barber_enable",
+            false
+        );
+        param_barber_enable_ = p.get();
+        layout.add(std::move(p));
+    }
+
+    value_tree_ = std::make_unique<juce::AudioProcessorValueTreeState>(*this, nullptr, "PARAMETERS", std::move(layout));
     preset_manager_ = std::make_unique<pluginshared::PresetManager>(*value_tree_, *this, pluginshared::UpdateData::GithubInfo{
         global::kPluginRepoOwnerName, global::kPluginRepoName
     });
 }
 
-EmptyAudioProcessor::~EmptyAudioProcessor() {
+SteepFlangerAudioProcessor::~SteepFlangerAudioProcessor()
+{
     param_listener_.Clear();
-    preset_manager_ = nullptr;
     value_tree_ = nullptr;
 }
 
 //==============================================================================
-const juce::String EmptyAudioProcessor::getName() const {
+const juce::String SteepFlangerAudioProcessor::getName() const
+{
     return JucePlugin_Name;
 }
 
-bool EmptyAudioProcessor::acceptsMidi() const {
-#if JucePlugin_WantsMidiInput
+bool SteepFlangerAudioProcessor::acceptsMidi() const
+{
+   #if JucePlugin_WantsMidiInput
     return true;
-#else
+   #else
     return false;
-#endif
+   #endif
 }
 
-bool EmptyAudioProcessor::producesMidi() const {
-#if JucePlugin_ProducesMidiOutput
+bool SteepFlangerAudioProcessor::producesMidi() const
+{
+   #if JucePlugin_ProducesMidiOutput
     return true;
-#else
+   #else
     return false;
-#endif
+   #endif
 }
 
-bool EmptyAudioProcessor::isMidiEffect() const {
-#if JucePlugin_IsMidiEffect
+bool SteepFlangerAudioProcessor::isMidiEffect() const
+{
+   #if JucePlugin_IsMidiEffect
     return true;
-#else
+   #else
     return false;
-#endif
+   #endif
 }
 
-double EmptyAudioProcessor::getTailLengthSeconds() const {
+double SteepFlangerAudioProcessor::getTailLengthSeconds() const
+{
     return 0.0;
 }
 
-int EmptyAudioProcessor::getNumPrograms() {
-    return 1; // NB: some hosts don't cope very well if you tell them there are 0 programs,
-              // so this should be at least 1, even if you're not really implementing programs.
+int SteepFlangerAudioProcessor::getNumPrograms()
+{
+    return 1;   // NB: some hosts don't cope very well if you tell them there are 0 programs,
+                // so this should be at least 1, even if you're not really implementing programs.
 }
 
-int EmptyAudioProcessor::getCurrentProgram() {
+int SteepFlangerAudioProcessor::getCurrentProgram()
+{
     return 0;
 }
 
-void EmptyAudioProcessor::setCurrentProgram(int index) {
-    juce::ignoreUnused(index);
+void SteepFlangerAudioProcessor::setCurrentProgram (int index)
+{
+    juce::ignoreUnused (index);
 }
 
-const juce::String EmptyAudioProcessor::getProgramName(int index) {
-    juce::ignoreUnused(index);
+const juce::String SteepFlangerAudioProcessor::getProgramName (int index)
+{
+    juce::ignoreUnused (index);
     return {};
 }
 
-void EmptyAudioProcessor::changeProgramName(int index, const juce::String& newName) {
-    juce::ignoreUnused(index, newName);
+void SteepFlangerAudioProcessor::changeProgramName (int index, const juce::String& newName)
+{
+    juce::ignoreUnused (index, newName);
 }
 
 //==============================================================================
-void EmptyAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
-    float fs = static_cast<float>(sampleRate);
+void SteepFlangerAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+{
+    std::ignore = samplesPerBlock;
+    
+    dsp_.Init(static_cast<float>(sampleRate), 30.0f);
+    dsp_.Reset();
+    dsp_param_.should_update_fir_ = true;
+
     param_listener_.MarkAll();
 }
 
-void EmptyAudioProcessor::releaseResources() {
+void SteepFlangerAudioProcessor::releaseResources()
+{
     // When playback stops, you can use this as an opportunity to free up any
     // spare memory, etc.
 }
 
-bool EmptyAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
-#if JucePlugin_IsMidiEffect
-    juce::ignoreUnused(layouts);
+bool SteepFlangerAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+{
+  #if JucePlugin_IsMidiEffect
+    juce::ignoreUnused (layouts);
     return true;
-#else
+  #else
     // This is the place where you check if the layout is supported.
     // In this template code we only support mono or stereo.
     // Some plugin hosts, such as certain GarageBand versions, will only
     // load plugins that support stereo bus layouts.
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
-        && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
+     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
 
     // This checks if the input layout matches the output layout
-#if !JucePlugin_IsSynth
-    if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet()) return false;
-#endif
+   #if ! JucePlugin_IsSynth
+    if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
+        return false;
+   #endif
 
     return true;
-#endif
+  #endif
 }
 
-void EmptyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) {
+void SteepFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
+                                              juce::MidiBuffer& midiMessages)
+{
+    std::ignore = midiMessages;
     juce::ScopedNoDenormals noDenormals;
     param_listener_.HandleDirty();
 
-    size_t const num_samples = buffer.getNumSamples();
-    float* left_ptr = buffer.getWritePointer(0);
-    float* right_ptr = buffer.getWritePointer(1);
+    auto lfo_info = delay_lfo_state_.SyncBpm2(getPlayHead());
+    if (lfo_info.sync_lfo) {
+        dsp_.SetLFOPhase(lfo_info.lfo_phase);
+    }
+    auto barber_lfo_info = barber_lfo_state_.SyncBpm2(getPlayHead());
+    if (barber_lfo_info.sync_lfo) {
+        dsp_.SetBarberLFOPhase(barber_lfo_info.lfo_phase);
+    }
+
+    dsp_param_.delay_ms = param_delay_ms_->get();
+    dsp_param_.depth_ms = param_delay_depth_ms_->get();
+    dsp_param_.lfo_freq = lfo_info.lfo_freq;
+    dsp_param_.lfo_phase = param_lfo_phase_->get();
+    dsp_param_.fir_cutoff = param_fir_cutoff_->get();
+    dsp_param_.fir_coeff_len = static_cast<size_t>(param_fir_coeff_len_->get());
+    dsp_param_.fir_side_lobe = param_fir_side_lobe_->get();
+    dsp_param_.fir_min_phase = param_fir_min_phase_->get();
+    dsp_param_.fir_highpass = param_fir_highpass_->get();
+    dsp_param_.feedback = param_feedback_->get();
+    dsp_param_.damp_pitch = param_damp_pitch_->get();
+    dsp_param_.barber_phase = param_barber_phase_->get();
+    dsp_param_.barber_speed = barber_lfo_info.lfo_freq;
+    dsp_param_.barber_enable = param_barber_enable_->get();
+    dsp_param_.barber_stereo_phase = param_barber_stereo_->get() * std::numbers::pi_v<float> / 2;
+    dsp_param_.drywet = param_drywet_->get();
+
+    size_t const len = static_cast<size_t>(buffer.getNumSamples());
+    auto* left_ptr = buffer.getWritePointer(0);
+    auto* right_ptr = buffer.getWritePointer(1);
+
+    dsp_.Process(left_ptr, right_ptr, len, dsp_param_);
 }
 
 //==============================================================================
-bool EmptyAudioProcessor::hasEditor() const {
+bool SteepFlangerAudioProcessor::hasEditor() const
+{
     return true; // (change this to false if you choose to not supply an editor)
 }
 
-juce::AudioProcessorEditor* EmptyAudioProcessor::createEditor() {
-    return new EmptyAudioProcessorEditor(*this);
-    // return new juce::GenericAudioProcessorEditor(*this);
+juce::AudioProcessorEditor* SteepFlangerAudioProcessor::createEditor()
+{
+    return new EmptyAudioProcessorEditor (*this);
 }
 
 //==============================================================================
-void EmptyAudioProcessor::getStateInformation(juce::MemoryBlock& destData) {
+void SteepFlangerAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
+{
     suspendProcessing(true);
+
+    juce::ValueTree data{"DATA"};
+    for (size_t i = 0; i < global::kMaxCoeffLen; ++i) {
+        data.appendChild({
+            "ITEM",
+            {
+                {"TIME", dsp_param_.custom_coeffs_[i]},
+                {"SPECTRAL", dsp_param_.custom_spectral_gains[i]},
+            }
+        }, nullptr);
+    }
+    juce::ValueTree custom_coeffs{"CUSTOM_COEFFS"};
+    custom_coeffs.setProperty("USING", dsp_param_.is_using_custom_.load(), nullptr);
+    custom_coeffs.appendChild(data, nullptr);
 
     juce::ValueTree plugin_state{"PLUGIN_STATE"};
     plugin_state.appendChild(value_tree_->copyState(), nullptr);
+    plugin_state.appendChild(custom_coeffs, nullptr);
 
     if (auto xml = plugin_state.createXml(); xml != nullptr) {
         copyXmlToBinary(*xml, destData);
@@ -148,14 +386,34 @@ void EmptyAudioProcessor::getStateInformation(juce::MemoryBlock& destData) {
     suspendProcessing(false);
 }
 
-void EmptyAudioProcessor::setStateInformation(const void* data, int sizeInBytes) {
+void SteepFlangerAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
     suspendProcessing(true);
 
     auto xml = *getXmlFromBinary(data, sizeInBytes);
     auto plugin_state = juce::ValueTree::fromXml(xml);
+
     if (plugin_state.isValid()) {
-        auto parameter = plugin_state.getChildWithName(kParameterValueTreeIdentify);
-        value_tree_->replaceState(parameter);
+        auto parameters = plugin_state.getChildWithName("PARAMETERS");
+        if (parameters.isValid()) {
+            value_tree_->replaceState(parameters);
+        }
+
+        auto custom_coeffs = plugin_state.getChildWithName("CUSTOM_COEFFS");
+        if (custom_coeffs.isValid()) {
+            dsp_param_.is_using_custom_ = custom_coeffs.getProperty("USING", false);
+            auto data_sections = custom_coeffs.getChildWithName("DATA");
+            if (data_sections.isValid()) {
+                std::fill_n(dsp_param_.custom_coeffs_.begin(), global::kMaxCoeffLen, 0.0f);
+                std::fill_n(dsp_param_.custom_spectral_gains.begin(), global::kMaxCoeffLen, 0.0f);
+                for (size_t i = 0; auto item : data_sections) {
+                    dsp_param_.custom_coeffs_[i] = static_cast<float>(item.getProperty("TIME", 0.0));
+                    dsp_param_.custom_spectral_gains[i] = static_cast<float>(item.getProperty("SPECTRAL", 0.0));
+                    ++i;
+                }
+                dsp_param_.should_update_fir_ = true;
+            }
+        }
     }
 
     suspendProcessing(false);
@@ -163,6 +421,7 @@ void EmptyAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 
 //==============================================================================
 // This creates new instances of the plugin..
-juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() {
-    return new EmptyAudioProcessor();
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
+{
+    return new SteepFlangerAudioProcessor();
 }

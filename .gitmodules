@@ -7,3 +7,10 @@
 [submodule "src/pluginshared"]
 	path = src/pluginshared
 	url = https://github.com/ManasWolrd/pluginshared.git
+[submodule "libs/qwqdsp"]
+	path = libs/qwqdsp
+	url = https://github.com/ManasWolrd/qwqdsp.git
+[submodule "libs/cpp_simd_detector"]
+	path = libs/cpp_simd_detector
+	url = https://github.com/ManasWolrd/cpp_simd_detector.git
+	branch = clang-msvc

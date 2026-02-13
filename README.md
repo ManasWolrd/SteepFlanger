@@ -1,7 +1,19 @@
-# plugin template
-或许是吧, visual studio/vs code/clion直接打开这个文件夹等cmake配置就行了.  
+# steep flanger
+steep flanger is a FIR flanger plugin.
 
-推荐使用Ninja和clang/GCC编译器, 优化比MSVC好很多.  
+## features
+FIR flanger  
+barberpole flanging  
+
+## signal-flow
+![alt text](docs/image.png)
+
+## gui
+![GUI](docs/gui.png)
+
+## demo
+[bilibili](https://www.bilibili.com/video/BV198npzXEPn)  
+[youtube](https://www.youtube.com/watch?v=yQ357S2LP2w)  
 
 # 克隆到本地
 ```bash

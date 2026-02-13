@@ -5,7 +5,7 @@
 //==============================================================================
 class EmptyAudioProcessorEditor final : public juce::AudioProcessorEditor {
 public:
-    explicit EmptyAudioProcessorEditor (EmptyAudioProcessor&);
+    explicit EmptyAudioProcessorEditor (SteepFlangerAudioProcessor&);
     ~EmptyAudioProcessorEditor() override;
 
     //==============================================================================
@@ -14,6 +14,9 @@ public:
 
 private:
     PluginUi ui_;
+    float scale_{1.0f};
+    int ui_width_{};
+    int ui_height_{};
 
     struct PluginConfig;
     juce::SharedResourcePointer<PluginConfig> plugin_config_;

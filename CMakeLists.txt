@@ -4,8 +4,8 @@ cmake_minimum_required(VERSION 3.22.1)
 # 插件信息，改了记得改src/global.hpp
 # ----------------------------------------
 set(TEAM_NAME ManasWorld)
-set(PLUGIN_REPO_URL "https://github.com/ManasWorld/plugin-template")
-set(PLUGIN_NAME plugin-template)
+set(PLUGIN_REPO_URL "https://github.com/ManasWorld/SteepFlanger")
+set(PLUGIN_NAME SteepFlanger)
 set(PLUGIN_VERSION 0.0.1)
 set(PLUGIN_BUNDLE_ID "com.manasworld.${PLUGIN_NAME}")
 
@@ -159,6 +159,15 @@ else()
         target_compile_definitions(audiofft PRIVATE AUDIOFFT_INTEL_IPP)
     endif()
 endif()
+
+# ----------------------------------------
+# qwqdsp
+# ----------------------------------------
+add_subdirectory(libs/qwqdsp)
+target_link_libraries(${PROJECT_NAME} PUBLIC qwqdsp)
+
+add_subdirectory(libs/cpp_simd_detector)
+target_link_libraries(${PROJECT_NAME} PUBLIC cpp_simd_detector)
 
 if(DEFINED DBUILD_IN_CI)
     target_compile_definitions(${PROJECT_NAME} PRIVATE DBUILD_IN_CI=1)
