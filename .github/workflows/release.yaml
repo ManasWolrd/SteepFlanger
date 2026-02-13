@@ -91,18 +91,23 @@ jobs:
         uses: actions/checkout@v4
         with:
          submodules: recursive
+        
+      - name: Install GCC
+        # You may pin to the exact commit or the version.
+        # uses: egor-tensin/setup-gcc@a2861a8b8538f49cf2850980acccf6b05a1b2ae4
+        uses: egor-tensin/setup-gcc@v2
+        with:
+          # GCC version to install
+          version: 15 # optional, default is latest
+          # Target platform
+          platform: x86 # optional, default is x64
+          # Set up cc/gcc/c++/g++ executables
+          cc: 1 # optional, default is 1
 
       - name: Install Dependencies
         run: |
           sudo apt update
           sudo apt-get install libx11-dev libfreetype-dev libfontconfig1-dev libasound2-dev libxrandr-dev libxinerama-dev libxcursor-dev
-
-      - name: Install Clang
-        uses: egor-tensin/setup-clang@v2
-        with:
-          version: 21
-          platform: x86
-          cc: 1
 
       # from pamplejuce
       - name: Install JUCE's Linux Deps
@@ -117,7 +122,7 @@ jobs:
 
       - name: Generate Build Files
         run: |
-          cmake -G "Unix Makefiles" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -DBUILD_STANDALONE=OFF -DBUILD_IN_CI=1 -S . -B ./build
+          cmake -G "Unix Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -DBUILD_STANDALONE=OFF -DBUILD_IN_CI=1 -S . -B ./build
 
       - name: Build Project
         run: |
