@@ -98,7 +98,7 @@ jobs:
         uses: egor-tensin/setup-gcc@v2
         with:
           # GCC version to install
-          version: 15 # optional, default is latest
+          version: latest # optional, default is latest
           # Target platform
           platform: x86 # optional, default is x64
           # Set up cc/gcc/c++/g++ executables
