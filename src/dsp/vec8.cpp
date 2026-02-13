@@ -72,7 +72,7 @@ void SteepFlanger::ProcessVec8(
         for (size_t i = 0; i < coeff_len_div8; ++i) {
             simd::Float256 target_wet_coeff = coeffs_ptr[i] * wet_mix + dry_coeff;
             delta_coeffs[i] = (target_wet_coeff - last_coeffs_ptr[i]) * inv_samples;
-            dry_coeff = {};
+            dry_coeff = simd::Float256{};
         }
 
         // fir polyphase filtering
@@ -237,7 +237,7 @@ void SteepFlanger::ProcessVec8(
                     right_rotation_coeff *= right_rotation_mul;
                 }
                 
-                auto remove_positive_spectrum = hilbert_complex_.Tick({
+                auto remove_positive_spectrum = hilbert_complex_.Tick(simd::Float128{
                     left_re_sum, left_im_sum, right_re_sum, right_im_sum
                 });
                 // this will mirror the positive spectrum to negative domain, forming a real value signal

@@ -53,7 +53,7 @@ void SteepFlanger::ProcessVec4(
         float const delay_samples = param.delay_ms * fs_ / 1000.0f;
         float const depth_samples = param.depth_ms * fs_ / 1000.0f;
         auto target_delay_samples = delay_samples + lfo_modu * depth_samples;
-        target_delay_samples = simd::Max128(target_delay_samples, {0.0f, 0.0f, 0.0f, 0.0f});
+        target_delay_samples = simd::Max128(target_delay_samples, simd::Float128{0.0f, 0.0f, 0.0f, 0.0f});
         float const delay_time_smooth_factor = 1.0f - std::exp(-1.0f / (fs_ / static_cast<float>(num_process) * kDelaySmoothMs / 1000.0f));
         last_exp_delay_samples_ += delay_time_smooth_factor * (target_delay_samples - last_exp_delay_samples_);
         auto curr_num_notch = last_delay_samples_;
@@ -72,7 +72,7 @@ void SteepFlanger::ProcessVec4(
         for (size_t i = 0; i < coeff_len_div_4; ++i) {
             auto target_wet_coeff = coeffs_ptr[i] * wet_mix + dry_coeff;
             delta_coeffs[i] = (target_wet_coeff - last_coeffs_ptr[i]) * inv_samples;
-            dry_coeff = {};
+            dry_coeff = simd::Float128{};
         }
 
         // fir polyphase filtering
@@ -228,7 +228,7 @@ void SteepFlanger::ProcessVec4(
                     right_rotation_coeff *= right_rotation_mul;
                 }
                 
-                auto remove_positive_spectrum = hilbert_complex_.Tick({
+                auto remove_positive_spectrum = hilbert_complex_.Tick(simd::Float128{
                     left_re_sum, left_im_sum, right_re_sum, right_im_sum
                 });
                 // this will mirror the positive spectrum to negative domain, forming a real value signal

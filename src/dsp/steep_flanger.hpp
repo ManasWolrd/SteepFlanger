@@ -1,5 +1,7 @@
 #pragma once
 #include <array>
+#include <atomic>
+#include <algorithm>
 
 #include <simd_detector.h>
 #include <qwqdsp/extension_marcos.hpp>
@@ -282,7 +284,7 @@ private:
 
         std::span<float> kernel{coeffs_.data(), coeff_len};
         float pad[global::kFFTSize]{};
-        constexpr size_t num_bins = complex_fft_.NumBins(global::kFFTSize);
+        constexpr size_t num_bins = qwqdsp_spectral::ComplexFFT::NumBins(global::kFFTSize);
         std::array<float, num_bins> gains{};
         std::copy(kernel.begin(), kernel.end(), pad);
         complex_fft_.FFTGainPhase(pad, gains);

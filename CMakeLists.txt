@@ -181,6 +181,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC qwqdsp)
 # ----------------------------------------
 # cpp_simd_detector
 # ----------------------------------------
+set(CPP_SIMD_DETECTOR_BUILD_EXAMPLES OFF)
 add_subdirectory(libs/cpp_simd_detector)
 target_link_libraries(${PROJECT_NAME} PUBLIC cpp_simd_detector)
 
