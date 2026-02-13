@@ -14,3 +14,6 @@
 	path = libs/cpp_simd_detector
 	url = https://github.com/ManasWolrd/cpp_simd_detector.git
 	branch = clang-msvc
+[submodule "libs/simde"]
+	path = libs/simde
+	url = https://github.com/simd-everywhere/simde-no-tests.git

@@ -1,34 +1,44 @@
 #pragma once
 #include <array>
 
-#include <qwqdsp/misc/smoother.hpp>
-#include <qwqdsp/spectral/complex_fft.hpp>
-#include <qwqdsp/oscillator/vic_sine_osc.hpp>
-#include <qwqdsp/simd_element/align_allocator.hpp>
+#include <simd_detector.h>
 #include <qwqdsp/extension_marcos.hpp>
 #include <qwqdsp/filter/window_fir.hpp>
+#include <qwqdsp/misc/smoother.hpp>
+#include <qwqdsp/oscillator/vic_sine_osc.hpp>
+#include <qwqdsp/simd_element/align_allocator.hpp>
+#include <qwqdsp/spectral/complex_fft.hpp>
 #include <qwqdsp/window/kaiser.hpp>
-#include <simd_detector.h>
 
-#include "pluginshared/simd.hpp"
+#include "global.hpp"
 #include "pluginshared/dsp/one_pole_tpt.hpp"
 #include "pluginshared/dsp/stereo_iir_hilbert_cpx.hpp"
-#include "global.hpp"
+#include "pluginshared/simd.hpp"
 
 struct Complex32x4 {
     simd::Float128 re;
     simd::Float128 im;
 
-    QWQDSP_FORCE_INLINE
-    constexpr Complex32x4& operator*=(const Complex32x4& a) noexcept;
+    constexpr Complex32x4& operator*=(const Complex32x4& a) noexcept {
+        auto new_re = re * a.re - im * a.im;
+        auto new_im = re * a.im + im * a.re;
+        re = new_re;
+        im = new_im;
+        return *this;
+    }
 };
 
 struct Complex32x8 {
     simd::Float256 re;
     simd::Float256 im;
 
-    QWQDSP_FORCE_INLINE
-    constexpr Complex32x8& operator*=(const Complex32x8& a) noexcept;
+    constexpr Complex32x8& operator*=(const Complex32x8& a) noexcept {
+        simd::Float256 new_re = re * a.re - im * a.im;
+        simd::Float256 new_im = re * a.im + im * a.re;
+        re = new_re;
+        im = new_im;
+        return *this;
+    }
 };
 
 class Vec4DelayLine {
@@ -54,19 +64,57 @@ public:
         std::fill(buffer_.begin(), buffer_.end(), 0.0f);
     }
 
-    QWQDSP_FORCE_INLINE
-    simd::Float128 GetAfterPush(simd::Float128 delay_samples) const noexcept;
+    simd::Float128 GetAfterPush(simd::Float128 delay_samples) const noexcept {
+        simd::Float128 frpos = static_cast<float>(wpos_ + delay_length_) - delay_samples;
+        auto t = simd::Frac128(frpos);
+        auto rpos = simd::ToInt128(frpos) - 1;
+        auto irpos = rpos & mask_;
 
-    // QWQDSP_FORCE_INLINE
-    simd::Float256 GetAfterPush(simd::Float256 delay_samples) const noexcept;
+        simd::Float128 interp0 = simd::Loadu128(buffer_.data() + irpos[0]);
+        simd::Float128 interp1 = simd::Loadu128(buffer_.data() + irpos[1]);
+        simd::Float128 interp2 = simd::Loadu128(buffer_.data() + irpos[2]);
+        simd::Float128 interp3 = simd::Loadu128(buffer_.data() + irpos[3]);
+        auto [yn1, y0, y1, y2] = simd::Transpose(interp0, interp1, interp2, interp3);
 
-    QWQDSP_FORCE_INLINE
+        auto d0 = (y1 - yn1) * 0.5f;
+        auto d1 = (y2 - y0) * 0.5f;
+        auto d = y1 - y0;
+        auto m0 = 3.0f * d - 2.0f * d0 - d1;
+        auto m1 = d0 - 2.0f * d + d1;
+        return y0 + t * (d0 + t * (m0 + t * m1));
+    }
+
+    simd::Float256 GetAfterPush(simd::Float256 delay_samples) const noexcept {
+        auto frpos = static_cast<float>(wpos_ + delay_length_) - delay_samples;
+        auto t = simd::Frac256(frpos);
+        auto rpos = simd::ToInt256(frpos) - 1;
+        auto irpos = rpos & mask_;
+
+        simd::Float128 interp0 = simd::Loadu128(buffer_.data() + irpos[0]);
+        simd::Float128 interp1 = simd::Loadu128(buffer_.data() + irpos[1]);
+        simd::Float128 interp2 = simd::Loadu128(buffer_.data() + irpos[2]);
+        simd::Float128 interp3 = simd::Loadu128(buffer_.data() + irpos[3]);
+        simd::Float128 interp4 = simd::Loadu128(buffer_.data() + irpos[4]);
+        simd::Float128 interp5 = simd::Loadu128(buffer_.data() + irpos[5]);
+        simd::Float128 interp6 = simd::Loadu128(buffer_.data() + irpos[6]);
+        simd::Float128 interp7 = simd::Loadu128(buffer_.data() + irpos[7]);
+
+        auto [yn1, y0, y1, y2] =
+            simd::Transpose256(interp0, interp1, interp2, interp3, interp4, interp5, interp6, interp7);
+
+        auto d0 = (y1 - yn1) * 0.5f;
+        auto d1 = (y2 - y0) * 0.5f;
+        auto d = y1 - y0;
+        auto m0 = 3.0f * d - 2.0f * d0 - d1;
+        auto m1 = d0 - 2.0f * d + d1;
+        return y0 + t * (d0 + t * (m0 + t * m1));
+    }
+
     void Push(float x) noexcept {
         wpos_ = (wpos_ + 1) & mask_;
         buffer_[static_cast<size_t>(wpos_)] = x;
         buffer_[static_cast<size_t>(wpos_ + delay_length_)] = x;
     }
-
 private:
     std::vector<float, qwqdsp_simd_element::AlignedAllocator<float, 32>> buffer_;
     int delay_length_{};
@@ -77,13 +125,13 @@ private:
 class SteepFlangerParameter {
 public:
     // => is mapping internal
-    float delay_ms; // >=0
-    float depth_ms; // >=0
-    float lfo_freq; // hz
-    float lfo_phase; // 0~1 => 0~2pi
-    float fir_cutoff; // 0~pi
+    float delay_ms;       // >=0
+    float depth_ms;       // >=0
+    float lfo_freq;       // hz
+    float lfo_phase;      // 0~1 => 0~2pi
+    float fir_cutoff;     // 0~pi
     size_t fir_coeff_len; // 4~kMaxCoeffLen
-    float fir_side_lobe; // >20
+    float fir_side_lobe;  // >20
     bool fir_min_phase;
     bool fir_highpass;
     float feedback; // gain
@@ -91,8 +139,8 @@ public:
     float barber_phase; // 0~1 => 0~2pi
     float barber_speed; // hz
     bool barber_enable;
-    float barber_stereo_phase; // 0~pi/2
-    float drywet; // 0~1
+    float barber_stereo_phase;              // 0~pi/2
+    float drywet;                           // 0~1
     std::atomic<bool> should_update_fir_{}; // tell flanger to update coeffs
     std::atomic<bool> is_using_custom_{};
     std::array<float, global::kMaxCoeffLen> custom_coeffs_{};
@@ -101,22 +149,42 @@ public:
 
 class SteepFlanger {
 public:
-    enum class ProcessArch {
-        kVector4,
-        kVector8,
-        kNothing
+    struct DispatchInfo {
+        using DispatchFunction = void (SteepFlanger::*)(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept;
+
+        DispatchFunction dispatch_func{};
+        size_t lane_size{};
+
+        bool IsValid() const noexcept { return dispatch_func != nullptr; }
     };
 
     SteepFlanger() {
         complex_fft_.Init(global::kFFTSize);
 
-        process_arch_ = ProcessArch::kNothing;
-        if (simd_detector::is_supported(simd_detector::InstructionSet::AVX2)) {
-            process_arch_ = ProcessArch::kVector8;
+#ifdef VEC4_DISPATCH_INSTRUCTIONS
+        if (simd_detector::is_supported(simd_detector::InstructionSet::VEC4_DISPATCH_INSTRUCTIONS)) {
+            dispatch_info_.dispatch_func = &SteepFlanger::ProcessVec4;
+            dispatch_info_.lane_size = 4;
         }
-        else if (simd_detector::is_supported(simd_detector::InstructionSet::SSE4_1)) {
-            process_arch_ = ProcessArch::kVector4;
+#endif
+#ifdef VEC4_2_DISPATCH_INSTRUCTIONS
+        if (simd_detector::is_supported(simd_detector::InstructionSet::VEC4_2_DISPATCH_INSTRUCTIONS)) {
+            dispatch_info_.dispatch_func = &SteepFlanger::ProcessVec4_2;
+            dispatch_info_.lane_size = 4;
         }
+#endif
+#ifdef VEC8_DISPATCH_INSTRUCTIONS
+        if (simd_detector::is_supported(simd_detector::InstructionSet::VEC8_DISPATCH_INSTRUCTIONS)) {
+            dispatch_info_.dispatch_func = &SteepFlanger::ProcessVec8;
+            dispatch_info_.lane_size = 8;
+        }
+#endif
+#ifdef VEC8_2_DISPATCH_INSTRUCTIONS
+        if (simd_detector::is_supported(simd_detector::InstructionSet::VEC8_2_DISPATCH_INSTRUCTIONS)) {
+            dispatch_info_.dispatch_func = &SteepFlanger::ProcessVec8_2;
+            dispatch_info_.lane_size = 8;
+        }
+#endif
     }
 
     void Init(float fs, float max_delay_ms) {
@@ -141,27 +209,11 @@ public:
         hilbert_complex_.Reset();
     }
 
-    void Process(
-        float* left_ptr, float* right_ptr, size_t len,
-        SteepFlangerParameter& param
-    ) noexcept {
-        if (process_arch_ == ProcessArch::kVector4) {
-            ProcessVec4(left_ptr, right_ptr, len, param);
-        }
-        else if (process_arch_ == ProcessArch::kVector8) {
-            ProcessVec8(left_ptr, right_ptr, len, param);
+    void Process(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept {
+        if (dispatch_info_.dispatch_func != nullptr) {
+            (this->*dispatch_info_.dispatch_func)(left_ptr, right_ptr, len, param);
         }
     }
-
-    void ProcessVec8(
-        float* left_ptr, float* right_ptr, size_t len,
-        SteepFlangerParameter& param
-    ) noexcept;
-
-    void ProcessVec4(
-        float* left_ptr, float* right_ptr, size_t len,
-        SteepFlangerParameter& param
-    ) noexcept;
 
     /**
      * @param p [0, 1]
@@ -182,12 +234,17 @@ public:
         return {coeffs_.data(), coeff_len_};
     }
 
-    ProcessArch GetProcessArch() const noexcept {
-        return process_arch_;
+    DispatchInfo GetDispatchInfo() const noexcept {
+        return dispatch_info_;
     }
 
     std::atomic<bool> have_new_coeff_{};
 private:
+    void ProcessVec8(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept;
+    void ProcessVec4(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept;
+    void ProcessVec8_2(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept;
+    void ProcessVec4_2(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept;
+
     void UpdateCoeff(SteepFlangerParameter& param) noexcept {
         size_t coeff_len = static_cast<size_t>(param.fir_coeff_len);
         coeff_len_ = coeff_len;
@@ -208,14 +265,14 @@ private:
             std::copy_n(param.custom_coeffs_.begin(), coeff_len, coeffs_.begin());
         }
 
-        if (process_arch_ == ProcessArch::kVector4) {
+        if (dispatch_info_.lane_size == 4) {
             size_t const coeff_len_div_4 = (coeff_len + 3) / 4;
             size_t const idxend = coeff_len_div_4 * 4;
             for (size_t i = coeff_len; i < idxend; ++i) {
                 coeffs_[i] = 0;
             }
         }
-        else if (process_arch_ == ProcessArch::kVector8) {
+        else if (dispatch_info_.lane_size == 8) {
             size_t const coeff_len_div_8 = (coeff_len + 7) / 8;
             size_t const idxend = coeff_len_div_8 * 8;
             for (size_t i = coeff_len; i < idxend; ++i) {
@@ -272,7 +329,7 @@ private:
     static constexpr size_t kSIMDMaxCoeffLen = ((global::kMaxCoeffLen + 7) / 8) * 8;
     static constexpr float kDelaySmoothMs = 20.0f;
 
-    ProcessArch process_arch_{};
+    DispatchInfo dispatch_info_{};
     float fs_{};
 
     Vec4DelayLine delay_left_;

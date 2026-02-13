@@ -3,46 +3,11 @@
 #include "qwqdsp/convert.hpp"
 #include "qwqdsp/polymath.hpp"
 
-QWQDSP_FORCE_INLINE
-constexpr Complex32x8& Complex32x8::operator*=(const Complex32x8& a) noexcept {
-    simd::Float256 new_re = re * a.re - im * a.im;
-    simd::Float256 new_im = re * a.im + im * a.re;
-    re = new_re;
-    im = new_im;
-    return *this;
-}
-
-// QWQDSP_FORCE_INLINE
-simd::Float256 Vec4DelayLine::GetAfterPush(simd::Float256 delay_samples) const noexcept {
-    auto frpos = static_cast<float>(wpos_ + delay_length_) - delay_samples;
-    auto t = simd::Frac256(frpos);
-    auto rpos = simd::ToInt256(frpos) - 1;
-    auto irpos = rpos & mask_;
-
-    simd::Float128 interp0 = simd::Loadu128(buffer_.data() + irpos[0]);
-    simd::Float128 interp1 = simd::Loadu128(buffer_.data() + irpos[1]);
-    simd::Float128 interp2 = simd::Loadu128(buffer_.data() + irpos[2]);
-    simd::Float128 interp3 = simd::Loadu128(buffer_.data() + irpos[3]);
-    simd::Float128 interp4 = simd::Loadu128(buffer_.data() + irpos[4]);
-    simd::Float128 interp5 = simd::Loadu128(buffer_.data() + irpos[5]);
-    simd::Float128 interp6 = simd::Loadu128(buffer_.data() + irpos[6]);
-    simd::Float128 interp7 = simd::Loadu128(buffer_.data() + irpos[7]);
-
-    auto[yn1, y0, y1, y2] = simd::Transpose256(interp0, interp1, interp2, interp3, interp4, interp5, interp6, interp7);
-
-    auto d0 = (y1 - yn1) * 0.5f;
-    auto d1 = (y2 - y0) * 0.5f;
-    auto d = y1 - y0;
-    auto m0 = 3.0f * d - 2.0f * d0 - d1;
-    auto m1 = d0 - 2.0f * d + d1;
-    return y0 + t * (
-        d0 + t * (
-            m0 + t * m1
-        )
-    );
-}
-
+#if defined(VEC8_2)
+void SteepFlanger::ProcessVec8_2(
+#else
 void SteepFlanger::ProcessVec8(
+#endif
     float* left_ptr, float* right_ptr, size_t len,
     SteepFlangerParameter& param
 ) noexcept {

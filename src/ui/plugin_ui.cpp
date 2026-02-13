@@ -266,7 +266,7 @@ PluginUi::PluginUi (SteepFlangerAudioProcessor& p)
     auto& apvts = *p.value_tree_;
 
     addChildComponent(unsupported_arch_);
-    unsupported_arch_.setVisible(p.dsp_.GetProcessArch() == SteepFlanger::ProcessArch::kNothing);
+    unsupported_arch_.setVisible(!p.dsp_.GetDispatchInfo().IsValid());
     if (unsupported_arch_.isVisible()) {
         setSize(400, 300);
         return;

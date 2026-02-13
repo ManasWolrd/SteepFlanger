@@ -3,41 +3,11 @@
 #include <qwqdsp/convert.hpp>
 #include <qwqdsp/polymath.hpp>
 
-QWQDSP_FORCE_INLINE
-constexpr Complex32x4& Complex32x4::operator*=(const Complex32x4& a) noexcept {
-    auto new_re = re * a.re - im * a.im;
-    auto new_im = re * a.im + im * a.re;
-    re = new_re;
-    im = new_im;
-    return *this;
-}
-
-QWQDSP_FORCE_INLINE
-simd::Float128 Vec4DelayLine::GetAfterPush(simd::Float128 delay_samples) const noexcept {
-    simd::Float128 frpos = static_cast<float>(wpos_ + delay_length_) - delay_samples;
-    auto t = simd::Frac128(frpos);
-    auto rpos = simd::ToInt128(frpos) - 1;
-    auto irpos = rpos & mask_;
-
-    simd::Float128 interp0 = simd::Loadu128(buffer_.data() + irpos[0]);
-    simd::Float128 interp1 = simd::Loadu128(buffer_.data() + irpos[1]);
-    simd::Float128 interp2 = simd::Loadu128(buffer_.data() + irpos[2]);
-    simd::Float128 interp3 = simd::Loadu128(buffer_.data() + irpos[3]);
-    auto[yn1, y0, y1, y2] = simd::Transpose(interp0, interp1, interp2, interp3);
-
-    auto d0 = (y1 - yn1) * 0.5f;
-    auto d1 = (y2 - y0) * 0.5f;
-    auto d = y1 - y0;
-    auto m0 = 3.0f * d - 2.0f * d0 - d1;
-    auto m1 = d0 - 2.0f * d + d1;
-    return y0 + t * (
-        d0 + t * (
-            m0 + t * m1
-        )
-    );
-}
-
+#ifdef VEC4_2
+void SteepFlanger::ProcessVec4_2(
+#else
 void SteepFlanger::ProcessVec4(
+#endif
     float* left_ptr, float* right_ptr, size_t len,
     SteepFlangerParameter& param
 ) noexcept {

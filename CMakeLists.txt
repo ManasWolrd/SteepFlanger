@@ -66,11 +66,23 @@ juce_add_plugin(${PROJECT_NAME}
 )
 
 # 添加源文件
-file(GLOB_RECURSE src
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+include(src/pluginshared/cmake/simd.cmake)
+simd_collect_file(
+    DSP_SOURCES
+    SIMD_COMPLIER_DEFINES
+    src/dsp/vec4.cpp
+    src/dsp/vec4_2.cpp
+    src/dsp/vec8.cpp
+    src/dsp/vec8_2.cpp
 )
-target_sources(${PROJECT_NAME} PRIVATE ${src})
+target_sources(${PROJECT_NAME}
+PRIVATE
+    src/PluginEditor.cpp
+    src/PluginProcessor.cpp
+    src/ui/plugin_ui.cpp
+    ${DSP_SOURCES}
+)
+target_compile_definitions(${PROJECT_NAME} PUBLIC ${SIMD_COMPLIER_DEFINES})
 
 # 头文件目录
 target_include_directories(${PROJECT_NAME}
@@ -166,8 +178,18 @@ endif()
 add_subdirectory(libs/qwqdsp)
 target_link_libraries(${PROJECT_NAME} PUBLIC qwqdsp)
 
+# ----------------------------------------
+# cpp_simd_detector
+# ----------------------------------------
 add_subdirectory(libs/cpp_simd_detector)
 target_link_libraries(${PROJECT_NAME} PUBLIC cpp_simd_detector)
+
+# ----------------------------------------
+# simde
+# ----------------------------------------
+add_library(simde INTERFACE)
+target_include_directories(simde INTERFACE libs/simde)
+target_link_libraries(${PROJECT_NAME} PUBLIC simde)
 
 if(DEFINED DBUILD_IN_CI)
     target_compile_definitions(${PROJECT_NAME} PRIVATE DBUILD_IN_CI=1)
