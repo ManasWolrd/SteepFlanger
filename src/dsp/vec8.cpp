@@ -241,7 +241,7 @@ void SteepFlanger::ProcessVec8(
                     left_re_sum, left_im_sum, right_re_sum, right_im_sum
                 });
                 // this will mirror the positive spectrum to negative domain, forming a real value signal
-                auto damp_x = __builtin_shufflevector(remove_positive_spectrum, remove_positive_spectrum, 0, 2, 1, 3);
+                auto damp_x = simd::Shuffle<simd::Float128, 0, 2, 1, 3>(remove_positive_spectrum, remove_positive_spectrum);
                 *left_ptr = damp_x[0] * fir_gain_;
                 *right_ptr = damp_x[1] * fir_gain_;
                 ++left_ptr;
