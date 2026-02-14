@@ -2,6 +2,7 @@
 #include <array>
 #include <atomic>
 #include <algorithm>
+#include <vector>
 
 #include <simd_detector.h>
 #include <qwqdsp/extension_marcos.hpp>
@@ -9,8 +10,8 @@
 #include <qwqdsp/misc/smoother.hpp>
 #include <qwqdsp/oscillator/vic_sine_osc.hpp>
 #include <qwqdsp/simd_element/align_allocator.hpp>
-#include <qwqdsp/spectral/complex_fft.hpp>
 #include <qwqdsp/window/kaiser.hpp>
+#include <AudioFFTcpx.h>
 
 #include "global.hpp"
 #include "pluginshared/dsp/one_pole_tpt.hpp"
@@ -161,7 +162,7 @@ public:
     };
 
     SteepFlanger() {
-        complex_fft_.Init(global::kFFTSize);
+        complex_fft_.init(global::kFFTSize);
 
 #ifdef VEC4_DISPATCH_INSTRUCTIONS
         if (simd_detector::is_supported(simd_detector::InstructionSet::VEC4_DISPATCH_INSTRUCTIONS)) {
@@ -283,27 +284,42 @@ private:
         }
 
         std::span<float> kernel{coeffs_.data(), coeff_len};
+        constexpr size_t num_bins = audiofft::AudioFFTcpx::ComplexSize(global::kFFTSize);
         float pad[global::kFFTSize]{};
-        constexpr size_t num_bins = qwqdsp_spectral::ComplexFFT::NumBins(global::kFFTSize);
+        float pad_im[global::kFFTSize]{};
         std::array<float, num_bins> gains{};
+        std::array<float, num_bins> fft_re{};
+        std::array<float, num_bins> fft_im{};
         std::copy(kernel.begin(), kernel.end(), pad);
-        complex_fft_.FFTGainPhase(pad, gains);
+
+        complex_fft_.fft(pad, pad_im, fft_re.data(), fft_im.data());
+        for (size_t i = 0; i < num_bins; ++i) {
+            float g = std::sqrt(fft_re[i] * fft_re[i] + fft_im[i] * fft_im[i]);
+            gains[i] = g;
+        }
+
         if (param.fir_min_phase) {
             float log_gains[num_bins]{};
             for (size_t i = 0; i < num_bins; ++i) {
-                log_gains[i] = std::log(gains[i] + 1e-18f);
+                float g = gains[i];
+                log_gains[i] = std::log(g + 1e-18f);
             }
 
             float phases[num_bins]{};
-            complex_fft_.IFFT(pad, log_gains, phases);
+            complex_fft_.ifft(pad, pad_im, log_gains, phases);
             pad[0] = 0;
             pad[num_bins / 2] = 0;
             for (size_t i = num_bins / 2 + 1; i < num_bins; ++i) {
                 pad[i] = -pad[i];
             }
 
-            complex_fft_.FFT(pad, log_gains, phases);
-            complex_fft_.IFFTGainPhase(pad, gains, phases);
+            std::fill_n(pad_im, num_bins, 0.0f);
+            complex_fft_.fft(pad, pad_im, log_gains, phases);
+            for (size_t i = 0; i < num_bins; ++i) {
+                fft_re[i] = gains[i] * std::cos(phases[i]);
+                fft_im[i] = gains[i] * std::sin(phases[i]);
+            }
+            complex_fft_.ifft(pad, pad_im, fft_re.data(), fft_im.data());
 
             for (size_t i = 0; i < kernel.size(); ++i) {
                 kernel[i] = pad[i];
@@ -362,5 +378,5 @@ private:
     size_t barber_osc_keep_amp_counter_{};
     size_t barber_osc_keep_amp_need_{};
 
-    qwqdsp_spectral::ComplexFFT complex_fft_;
+    audiofft::AudioFFTcpx complex_fft_;
 };
