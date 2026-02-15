@@ -63,6 +63,7 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         param_listener_.Add(p, [this](float) {
             dsp_param_.is_using_custom_ = false;
             dsp_param_.should_update_fir_ = true;
+            dsp_param_.should_update_iir_ = true;
         });
         layout.add(std::move(p));
     }
@@ -183,6 +184,43 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
             false
         );
         param_barber_enable_ = p.get();
+        layout.add(std::move(p));
+    }
+
+    // -------------------- iir --------------------
+    {
+        auto p = std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{"iir_enable", 1},
+            "iir_enable",
+            false
+        );
+        param_iir_mode_ = p.get();
+        layout.add(std::move(p));
+    }
+    {
+        auto p = std::make_unique<juce::AudioParameterInt>(
+            juce::ParameterID{"iir_filter_num", 1},
+            "iir_filter_num",
+            1, global::kIirMaxNumFilters,
+            4
+        );
+        param_iir_filter_num_ = p.get();
+        param_listener_.Add(p, [this](float) {
+            dsp_param_.should_update_iir_ = true;
+        });
+        layout.add(std::move(p));
+    }
+    {
+        auto p = std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"ripple", 1},
+            "ripple",
+            juce::NormalisableRange<float>{0.1f, 20.0f, 0.1f},
+            1.0f
+        );
+        param_iir_ripple_ = p.get();
+        param_listener_.Add(p, [this](float) {
+            dsp_param_.should_update_iir_ = true;
+        });
         layout.add(std::move(p));
     }
 
@@ -337,6 +375,9 @@ void SteepFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     dsp_param_.barber_enable = param_barber_enable_->get();
     dsp_param_.barber_stereo_phase = param_barber_stereo_->get() * std::numbers::pi_v<float> / 2;
     dsp_param_.drywet = param_drywet_->get();
+    dsp_param_.iir_num_filters = static_cast<size_t>(param_iir_filter_num_->get());
+    dsp_param_.ripple = param_iir_ripple_->get();
+    dsp_param_.iir_mode = param_iir_mode_->get();
 
     size_t const len = static_cast<size_t>(buffer.getNumSamples());
     auto* left_ptr = buffer.getWritePointer(0);

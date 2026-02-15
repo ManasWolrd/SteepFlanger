@@ -263,3 +263,13 @@ void SteepFlanger::ProcessVec8(
         last_damp_lowpass_coeff_ = damp_lowpass_coeff_;
     }
 }
+
+#if defined(VEC8_2)
+void SteepFlanger::ProcessVec8_2_Iir(
+#else
+void SteepFlanger::ProcessVec8_Iir(
+#endif
+    float* left_ptr, float* right_ptr, size_t len,
+    SteepFlangerParameter& param
+) noexcept {
+}

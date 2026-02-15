@@ -125,8 +125,181 @@ private:
     int mask_{};
 };
 
-class SteepFlangerParameter {
+template <simd::IsSimdFloat T>
+class ParallelDelayLine {
 public:
+    struct State {
+        T s1;
+        T s2;
+    };
+
+    void Init(float max_ms, float fs) {
+        float d = max_ms * fs / 1000.0f;
+        size_t i = static_cast<size_t>(std::ceil(d));
+        Init(i);
+    }
+
+    void Init(size_t max_samples) {
+        size_t a = 1;
+        while (a < max_samples) {
+            a *= 2;
+        }
+        mask_ = static_cast<int>(a - 1);
+        delay_length_ = static_cast<int>(a);
+        buffer_.resize(a * 2);
+    }
+
+    void Reset() noexcept {
+        wpos_ = 0;
+        std::fill(buffer_.begin(), buffer_.end(), State{});
+    }
+
+    State GetBeforePush(float delay_samples) const noexcept {
+        float frpos = static_cast<float>(wpos_ + delay_length_) - delay_samples;
+        auto t = frpos - std::floor(frpos);
+        auto rpos = static_cast<int>(frpos);
+        auto irpos = rpos & mask_;
+        auto rprev1 = (irpos - 1) & (mask_);
+        auto rnext1 = (irpos + 1) & (mask_);
+        auto rnext2 = (irpos + 2) & (mask_);
+
+        auto yn1 = buffer_[static_cast<size_t>(rprev1)];
+        auto y0 = buffer_[static_cast<size_t>(irpos)];
+        auto y1 = buffer_[static_cast<size_t>(rnext1)];
+        auto y2 = buffer_[static_cast<size_t>(rnext2)];
+
+        // auto d0 = (y1 - yn1) * 0.5f;
+        auto d0_s1 = (y1.s1 - yn1.s1) * 0.5f;
+        auto d0_s2 = (y1.s2 - yn1.s2) * 0.5f;
+        // auto d1 = (y2 - y0) * 0.5f;
+        auto d1_s1 = (y2.s1 - y0.s1) * 0.5f;
+        auto d1_s2 = (y2.s2 - y0.s2) * 0.5f;
+        // auto d = y1 - y0;
+        auto d_s1 = y1.s1 - y0.s1;
+        auto d_s2 = y1.s2 - y0.s2;
+        // auto m0 = 3.0f * d - 2.0f * d0 - d1;
+        auto m0_s1 = 3.0f * d_s1 - 2.0f * d0_s1 - d1_s1;
+        auto m0_s2 = 3.0f * d_s2 - 2.0f * d0_s2 - d1_s2;
+        // auto m1 = d0 - 2.0f * d + d1;
+        auto m1_s1 = d0_s1 - 2.0f * d_s1 + d1_s1;
+        auto m1_s2 = d0_s2 - 2.0f * d_s2 + d1_s2;
+        // return y0 + t * (d0 + t * (m0 + t * m1));
+        auto y0_s1 = y0.s1 + t * (d0_s1 + t * (m0_s1 + t * m1_s1));
+        auto y0_s2 = y0.s2 + t * (d0_s2 + t * (m0_s2 + t * m1_s2));
+        return State{y0_s1, y0_s2};
+    }
+
+    void Push(State x) noexcept {
+        wpos_ = (wpos_ + 1) & mask_;
+        buffer_[static_cast<size_t>(wpos_)] = x;
+        buffer_[static_cast<size_t>(wpos_ + delay_length_)] = x;
+    }
+private:
+    std::vector<State> buffer_;
+    int delay_length_{};
+    int wpos_{};
+    int mask_{};
+};
+
+class Iir4Filter {
+public:
+    void Init(float fs, float max_ms) {
+        delay_l_.Init(max_ms, fs);
+        delay_r_.Init(max_ms, fs);
+    }
+
+    void Reset() noexcept {
+        delay_l_.Reset();
+        delay_r_.Reset();
+    }
+
+    std::array<float, 2> Tick(float left, float right, float delay_l, float delay_r) noexcept {
+        auto s_l = delay_l_.GetBeforePush(delay_l);
+        auto s_r = delay_r_.GetBeforePush(delay_r);
+        // auto s1 = s1_delay_.GetBeforePush(delay);
+        // auto s2 = s2_delay_.GetBeforePush(delay);
+
+        // auto output = s1;
+        auto output_l = s_l.s1;
+        auto output_r = s_r.s1;
+        // s1 = x * b1_ - output * a1_ + s2;
+        auto s1_l = left * b1_ - output_l * a1_ + s_l.s2;
+        auto s1_r = right * b1_ - output_r * a1_ + s_r.s2;
+        // s2 = x * b2_ - output * a2_;
+        auto s2_l = left * b2_ - output_l * a2_;
+        auto s2_r = right * b2_ - output_r * a2_;
+        // s1_delay_.Push(s1);
+        // s2_delay_.Push(s2);
+        delay_l_.Push(decltype(delay_l_)::State{s1_l, s2_l});
+        delay_r_.Push(decltype(delay_r_)::State{s1_r, s2_r});
+        return {simd::ReduceAdd(output_l), simd::ReduceAdd(output_r)};
+    }
+
+    void Set(simd::Float128 b1, simd::Float128 b2, simd::Float128 a1, simd::Float128 a2) noexcept {
+        b1_ = b1;
+        b2_ = b2;
+        a1_ = a1;
+        a2_ = a2;
+    }
+private:
+    ParallelDelayLine<simd::Float128> delay_l_;
+    ParallelDelayLine<simd::Float128> delay_r_;
+    simd::Float128 b1_{};
+    simd::Float128 b2_{};
+    simd::Float128 a1_{};
+    simd::Float128 a2_{};
+};
+
+class Iir8Filter {
+public:
+    void Init(float fs, float max_ms) {
+        delay_l_.Init(max_ms, fs);
+        delay_r_.Init(max_ms, fs);
+    }
+
+    void Reset() noexcept {
+        delay_l_.Reset();
+        delay_r_.Reset();
+    }
+
+    std::array<float, 2> Tick(float left, float right, float delay_l, float delay_r) noexcept {
+        auto s_l = delay_l_.GetBeforePush(delay_l);
+        auto s_r = delay_r_.GetBeforePush(delay_r);
+        // auto s1 = s1_delay_.GetBeforePush(delay);
+        // auto s2 = s2_delay_.GetBeforePush(delay);
+
+        // auto output = s1;
+        auto output_l = s_l.s1;
+        auto output_r = s_r.s1;
+        // s1 = x * b1_ - output * a1_ + s2;
+        auto s1_l = left * b1_ - output_l * a1_ + s_l.s2;
+        auto s1_r = right * b1_ - output_r * a1_ + s_r.s2;
+        // s2 = x * b2_ - output * a2_;
+        auto s2_l = left * b2_ - output_l * a2_;
+        auto s2_r = right * b2_ - output_r * a2_;
+        // s1_delay_.Push(s1);
+        // s2_delay_.Push(s2);
+        delay_l_.Push(decltype(delay_l_)::State{s1_l, s2_l});
+        delay_r_.Push(decltype(delay_r_)::State{s1_r, s2_r});
+        return {simd::ReduceAdd(output_l), simd::ReduceAdd(output_r)};
+    }
+
+    void Set(simd::Float256 b1, simd::Float256 b2, simd::Float256 a1, simd::Float256 a2) noexcept {
+        b1_ = b1;
+        b2_ = b2;
+        a1_ = a1;
+        a2_ = a2;
+    }
+private:
+    ParallelDelayLine<simd::Float256> delay_l_;
+    ParallelDelayLine<simd::Float256> delay_r_;
+    simd::Float256 b2_{};
+    simd::Float256 b1_{};
+    simd::Float256 a1_{};
+    simd::Float256 a2_{};
+};
+
+struct SteepFlangerParameter {
     // => is mapping internal
     float delay_ms;       // >=0
     float depth_ms;       // >=0
@@ -148,6 +321,13 @@ public:
     std::atomic<bool> is_using_custom_{};
     std::array<float, global::kMaxCoeffLen> custom_coeffs_{};
     std::array<float, global::kMaxCoeffLen> custom_spectral_gains{};
+
+    // iir mode
+    bool iir_mode;
+    std::atomic<bool> should_update_iir_{}; // tell flanger to update coeffs
+    size_t iir_num_filters{};
+    // `iir cutoff` is using `fir_cutoff`
+    float ripple{}; // >0
 };
 
 class SteepFlanger {
@@ -156,6 +336,7 @@ public:
         using DispatchFunction = void (SteepFlanger::*)(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept;
 
         DispatchFunction dispatch_func{};
+        DispatchFunction iir_dispatch_func{};
         size_t lane_size{};
 
         bool IsValid() const noexcept { return dispatch_func != nullptr; }
@@ -167,30 +348,63 @@ public:
 #ifdef VEC4_DISPATCH_INSTRUCTIONS
         if (simd_detector::is_supported(simd_detector::InstructionSet::VEC4_DISPATCH_INSTRUCTIONS)) {
             dispatch_info_.dispatch_func = &SteepFlanger::ProcessVec4;
+            dispatch_info_.iir_dispatch_func = &SteepFlanger::ProcessVec4_Iir;
             dispatch_info_.lane_size = 4;
+            new (&iir_filters_.iir4) Iir4Filter[global::kIirMaxNumFilters / 4];
         }
 #endif
 #ifdef VEC4_2_DISPATCH_INSTRUCTIONS
         if (simd_detector::is_supported(simd_detector::InstructionSet::VEC4_2_DISPATCH_INSTRUCTIONS)) {
             dispatch_info_.dispatch_func = &SteepFlanger::ProcessVec4_2;
+            dispatch_info_.iir_dispatch_func = &SteepFlanger::ProcessVec4_2_Iir;
             dispatch_info_.lane_size = 4;
+            new (&iir_filters_.iir4) Iir4Filter[global::kIirMaxNumFilters / 4];
         }
 #endif
-#ifdef VEC8_DISPATCH_INSTRUCTIONS
-        if (simd_detector::is_supported(simd_detector::InstructionSet::VEC8_DISPATCH_INSTRUCTIONS)) {
-            dispatch_info_.dispatch_func = &SteepFlanger::ProcessVec8;
-            dispatch_info_.lane_size = 8;
+// #ifdef VEC8_DISPATCH_INSTRUCTIONS
+//         if (simd_detector::is_supported(simd_detector::InstructionSet::VEC8_DISPATCH_INSTRUCTIONS)) {
+//             dispatch_info_.dispatch_func = &SteepFlanger::ProcessVec8;
+//             dispatch_info_.iir_dispatch_func = &SteepFlanger::ProcessVec8_Iir;
+//             dispatch_info_.lane_size = 8;
+//             new (&iir_filters_.iir8) Iir8Filter[global::kIirMaxNumFilters / 8];
+//         }
+// #endif
+// #ifdef VEC8_2_DISPATCH_INSTRUCTIONS
+//         if (simd_detector::is_supported(simd_detector::InstructionSet::VEC8_2_DISPATCH_INSTRUCTIONS)) {
+//             dispatch_info_.dispatch_func = &SteepFlanger::ProcessVec8_2;
+//             dispatch_info_.iir_dispatch_func = &SteepFlanger::ProcessVec8_2_Iir;
+//             dispatch_info_.lane_size = 8;
+//             new (&iir_filters_.iir8) Iir8Filter[global::kIirMaxNumFilters / 8];
+//         }
+// #endif
+    }
+
+    ~SteepFlanger() {
+        if (dispatch_info_.lane_size == 4) {
+            delete[] &iir_filters_.iir4;
         }
-#endif
-#ifdef VEC8_2_DISPATCH_INSTRUCTIONS
-        if (simd_detector::is_supported(simd_detector::InstructionSet::VEC8_2_DISPATCH_INSTRUCTIONS)) {
-            dispatch_info_.dispatch_func = &SteepFlanger::ProcessVec8_2;
-            dispatch_info_.lane_size = 8;
+        else if (dispatch_info_.lane_size == 8) {
+            delete[] &iir_filters_.iir8;
         }
-#endif
     }
 
     void Init(float fs, float max_delay_ms) {
+        if (!dispatch_info_.IsValid()) return;
+
+        if (dispatch_info_.lane_size == 4) {
+            for (size_t i = 0; i < global::kIirMaxNumFilters / 4; ++i) {
+                iir_filters_.iir4[i].Init(fs, max_delay_ms);
+            }
+        }
+        else if (dispatch_info_.lane_size == 8) {
+            for (size_t i = 0; i < global::kIirMaxNumFilters / 8; ++i) {
+                iir_filters_.iir8[i].Init(fs, max_delay_ms);
+            }
+        }
+        else {
+            assert(false);
+        }
+
         fs_ = fs;
         float const samples_need = fs * max_delay_ms / 1000.0f;
         delay_left_.Init(static_cast<size_t>(samples_need * global::kMaxCoeffLen));
@@ -213,8 +427,13 @@ public:
     }
 
     void Process(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept {
-        if (dispatch_info_.dispatch_func != nullptr) {
-            (this->*dispatch_info_.dispatch_func)(left_ptr, right_ptr, len, param);
+        if (dispatch_info_.IsValid()) {
+            if (!param.iir_mode) {
+                (this->*dispatch_info_.dispatch_func)(left_ptr, right_ptr, len, param);
+            }
+            else {
+                (this->*dispatch_info_.iir_dispatch_func)(left_ptr, right_ptr, len, param);
+            }
         }
     }
 
@@ -247,6 +466,11 @@ private:
     void ProcessVec4(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept;
     void ProcessVec8_2(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept;
     void ProcessVec4_2(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept;
+
+    void ProcessVec8_Iir(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept;
+    void ProcessVec4_Iir(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept;
+    void ProcessVec8_2_Iir(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept;
+    void ProcessVec4_2_Iir(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept;
 
     void UpdateCoeff(SteepFlangerParameter& param) noexcept {
         size_t coeff_len = static_cast<size_t>(param.fir_coeff_len);
@@ -350,13 +574,27 @@ private:
     DispatchInfo dispatch_info_{};
     float fs_{};
 
+    // ----------------------------------------
+    // fir part
+    // ----------------------------------------
     Vec4DelayLine delay_left_;
     Vec4DelayLine delay_right_;
-    // fir
     simd::Array256<float, kSIMDMaxCoeffLen> coeffs_{};
     simd::Array256<float, kSIMDMaxCoeffLen> last_coeffs_{};
     float fir_gain_{1.0f};
     size_t coeff_len_{};
+
+    // ----------------------------------------
+    // iir part
+    // ----------------------------------------
+    union IirFilters {
+        IirFilters() {}
+        ~IirFilters() {}
+
+        Iir4Filter iir4[global::kIirMaxNumFilters / 4];
+        Iir8Filter iir8[global::kIirMaxNumFilters / 8];
+    };
+    IirFilters iir_filters_;
 
     // delay time lfo
     float phase_{};

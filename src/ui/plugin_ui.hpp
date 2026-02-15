@@ -167,6 +167,9 @@ private:
             on_want_new_size(width, height); 
         }
     }
+
+    void SetIirMode(bool is_iir);
+
     SteepFlangerAudioProcessor& p_;
     UnsupportArch unsupported_arch_;
     pluginshared::PresetPanel preset_panel_;
@@ -181,7 +184,7 @@ private:
     ui::FlatButton lfo_reset_phase_;
 
     juce::Rectangle<int> fir_bound_;
-    juce::Label fir_title_{"fir", "fir"};
+    ui::Switch iir_mode_{"iir", "fir"};
     ui::Dial cutoff_{"cutoff"};
     ui::Dial coeff_len_{"steep"};
     ui::Dial side_lobe_{"side_lobe"};

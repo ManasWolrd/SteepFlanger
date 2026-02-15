@@ -300,7 +300,11 @@ PluginUi::PluginUi (SteepFlangerAudioProcessor& p)
     addAndMakeVisible(side_lobe_);
     minum_phase_.BindParam(apvts, "minum_phase");
     addAndMakeVisible(minum_phase_);
-    addAndMakeVisible(fir_title_);
+    iir_mode_.onClick = [this] {
+        SetIirMode(iir_mode_.getToggleState());
+    };
+    iir_mode_.BindParam(p.param_iir_mode_);
+    addAndMakeVisible(iir_mode_);
     highpass_.BindParam(apvts, "highpass");
     addAndMakeVisible(highpass_);
     custom_.onClick = [this] {
@@ -401,7 +405,7 @@ void PluginUi::resized() {
                 minum_phase_.setBounds(fir_title.removeFromRight(100).reduced(2, 0));
                 highpass_.setBounds(fir_title.removeFromRight(70).reduced(2, 0));
                 custom_.setBounds(fir_title.removeFromRight(60).reduced(2, 0));
-                fir_title_.setBounds(fir_title);
+                iir_mode_.setBounds(fir_title);
             }
             cutoff_.setBounds(fir_block.removeFromLeft(80));;
             coeff_len_.setBounds(fir_block.removeFromLeft(80));;
@@ -451,4 +455,22 @@ void PluginUi::timerCallback() {
     if (p_.dsp_.have_new_coeff_.exchange(false)) {
         UpdateGui();
     }
+}
+
+void PluginUi::SetIirMode(bool is_iir) {
+    minum_phase_.setVisible(!is_iir);
+    highpass_.setVisible(!is_iir);
+    custom_.setVisible(!is_iir);
+
+    if (is_iir) {
+        coeff_len_.BindParam(p_.param_iir_filter_num_);
+        side_lobe_.BindParam(p_.param_iir_ripple_);
+    }
+    else {
+        coeff_len_.BindParam(p_.param_fir_coeff_len_);
+        side_lobe_.BindParam(p_.param_fir_side_lobe_);
+    }
+
+    coeff_len_.label.setText(is_iir ? "N filter" : "coeff len", juce::dontSendNotification);
+    side_lobe_.label.setText(is_iir ? "ripple" : "side lobe", juce::dontSendNotification);
 }

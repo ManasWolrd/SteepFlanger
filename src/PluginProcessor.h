@@ -63,6 +63,9 @@ public:
     juce::AudioParameterFloat* param_barber_stereo_;
     juce::AudioParameterFloat* param_drywet_;
     juce::AudioParameterBool* param_barber_enable_;
+    juce::AudioParameterBool* param_iir_mode_;
+    juce::AudioParameterInt* param_iir_filter_num_;
+    juce::AudioParameterFloat* param_iir_ripple_;
     
     SteepFlanger dsp_;
     SteepFlangerParameter dsp_param_;
