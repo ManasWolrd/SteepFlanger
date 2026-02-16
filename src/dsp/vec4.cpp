@@ -270,7 +270,7 @@ void SteepFlanger::ProcessVec4_Iir(
         double k_re = std::sinh(A);
         double k_im = std::cosh(A);
 
-        double cutoff = param.fir_cutoff / 2.0f;
+        double cutoff = param.fir_cutoff;
         if (param.fir_highpass) {
             cutoff = std::numbers::pi_v<double> - cutoff;
         }
