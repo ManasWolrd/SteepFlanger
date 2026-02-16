@@ -19,7 +19,7 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         auto p = std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"delay", 1},
             "delay",
-            juce::NormalisableRange<float>{0.0f, 20.0f, 0.01f},
+            juce::NormalisableRange<float>{0.0f, global::kMaxDelayMs, 0.01f},
             1.0f
         );
         param_delay_ms_ = p.get();
@@ -29,7 +29,7 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         auto p = std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"depth", 1},
             "depth",
-            juce::NormalisableRange<float>{0.0f, 10.0f, 0.01f},
+            juce::NormalisableRange<float>{0.0f, global::kModuDelayMs, 0.01f},
             1.0f
         );
         param_delay_depth_ms_ = p.get();
@@ -116,6 +116,7 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         param_listener_.Add(p, [this](bool) {
             dsp_param_.is_using_custom_ = false;
             dsp_param_.should_update_fir_ = true;
+            dsp_param_.should_update_iir_ = true;
         });
         layout.add(std::move(p));
     }
@@ -306,7 +307,7 @@ void SteepFlangerAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
 {
     std::ignore = samplesPerBlock;
     
-    dsp_.Init(static_cast<float>(sampleRate), 30.0f);
+    dsp_.Init(static_cast<float>(sampleRate), global::kMaxDelayMs + global::kModuDelayMs + 0.1f);
     dsp_.Reset();
     dsp_param_.should_update_fir_ = true;
 

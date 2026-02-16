@@ -201,7 +201,8 @@ private:
     int mask_{};
 };
 
-class Iir4Filter {
+template <simd::IsSimdFloat T>
+class IirNFilter {
 public:
     void Init(float fs, float max_ms) {
         delay_l_.Init(max_ms, fs);
@@ -219,85 +220,39 @@ public:
         // auto s1 = s1_delay_.GetBeforePush(delay);
         // auto s2 = s2_delay_.GetBeforePush(delay);
 
-        // auto output = s1;
-        auto output_l = s_l.s1;
-        auto output_r = s_r.s1;
-        // s1 = x * b1_ - output * a1_ + s2;
-        auto s1_l = left * b1_ - output_l * a1_ + s_l.s2;
-        auto s1_r = right * b1_ - output_r * a1_ + s_r.s2;
-        // s2 = x * b2_ - output * a2_;
-        auto s2_l = left * b2_ - output_l * a2_;
-        auto s2_r = right * b2_ - output_r * a2_;
+        // auto y = x * b0_ + s1;
+        // b0 = 0 => y = s1
+        auto y_l = s_l.s1;
+        auto y_r = s_r.s1;
+        // s1 = x * b1_ - y * a1_ + s2;
+        auto s1_l = left * b1_ - y_l * a1_ + s_l.s2;
+        auto s1_r = right * b1_ - y_r * a1_ + s_r.s2;
+        // s2 = x * b2_ - y * a2_;
+        auto s2_l = left * b2_ -y_l * a2_;
+        auto s2_r = right * b2_ -y_r * a2_;
         // s1_delay_.Push(s1);
         // s2_delay_.Push(s2);
-        delay_l_.Push(decltype(delay_l_)::State{s1_l, s2_l});
-        delay_r_.Push(decltype(delay_r_)::State{s1_r, s2_r});
-        return {simd::ReduceAdd(output_l), simd::ReduceAdd(output_r)};
+        delay_l_.Push(typename decltype(delay_l_)::State{s1_l, s2_l});
+        delay_r_.Push(typename decltype(delay_r_)::State{s1_r, s2_r});
+        return {simd::ReduceAdd(y_l), simd::ReduceAdd(y_r)};
     }
 
-    void Set(simd::Float128 b1, simd::Float128 b2, simd::Float128 a1, simd::Float128 a2) noexcept {
+    void Set(T b1, T b2, T a1, T a2) noexcept {
         b1_ = b1;
         b2_ = b2;
         a1_ = a1;
         a2_ = a2;
     }
 private:
-    ParallelDelayLine<simd::Float128> delay_l_;
-    ParallelDelayLine<simd::Float128> delay_r_;
-    simd::Float128 b1_{};
-    simd::Float128 b2_{};
-    simd::Float128 a1_{};
-    simd::Float128 a2_{};
+    ParallelDelayLine<T> delay_l_;
+    ParallelDelayLine<T> delay_r_;
+    T b1_{};
+    T b2_{};
+    T a1_{};
+    T a2_{};
 };
-
-class Iir8Filter {
-public:
-    void Init(float fs, float max_ms) {
-        delay_l_.Init(max_ms, fs);
-        delay_r_.Init(max_ms, fs);
-    }
-
-    void Reset() noexcept {
-        delay_l_.Reset();
-        delay_r_.Reset();
-    }
-
-    std::array<float, 2> Tick(float left, float right, float delay_l, float delay_r) noexcept {
-        auto s_l = delay_l_.GetBeforePush(delay_l);
-        auto s_r = delay_r_.GetBeforePush(delay_r);
-        // auto s1 = s1_delay_.GetBeforePush(delay);
-        // auto s2 = s2_delay_.GetBeforePush(delay);
-
-        // auto output = s1;
-        auto output_l = s_l.s1;
-        auto output_r = s_r.s1;
-        // s1 = x * b1_ - output * a1_ + s2;
-        auto s1_l = left * b1_ - output_l * a1_ + s_l.s2;
-        auto s1_r = right * b1_ - output_r * a1_ + s_r.s2;
-        // s2 = x * b2_ - output * a2_;
-        auto s2_l = left * b2_ - output_l * a2_;
-        auto s2_r = right * b2_ - output_r * a2_;
-        // s1_delay_.Push(s1);
-        // s2_delay_.Push(s2);
-        delay_l_.Push(decltype(delay_l_)::State{s1_l, s2_l});
-        delay_r_.Push(decltype(delay_r_)::State{s1_r, s2_r});
-        return {simd::ReduceAdd(output_l), simd::ReduceAdd(output_r)};
-    }
-
-    void Set(simd::Float256 b1, simd::Float256 b2, simd::Float256 a1, simd::Float256 a2) noexcept {
-        b1_ = b1;
-        b2_ = b2;
-        a1_ = a1;
-        a2_ = a2;
-    }
-private:
-    ParallelDelayLine<simd::Float256> delay_l_;
-    ParallelDelayLine<simd::Float256> delay_r_;
-    simd::Float256 b2_{};
-    simd::Float256 b1_{};
-    simd::Float256 a1_{};
-    simd::Float256 a2_{};
-};
+using Iir4Filter = IirNFilter<simd::Float128>;
+using Iir8Filter = IirNFilter<simd::Float256>;
 
 struct SteepFlangerParameter {
     // => is mapping internal
@@ -381,10 +336,14 @@ public:
 
     ~SteepFlanger() {
         if (dispatch_info_.lane_size == 4) {
-            delete[] &iir_filters_.iir4;
+            for (size_t i = 0; i < global::kIirMaxNumFilters / 4; ++i) {
+                iir_filters_.iir4[i].~Iir4Filter();
+            }
         }
         else if (dispatch_info_.lane_size == 8) {
-            delete[] &iir_filters_.iir8;
+            for (size_t i = 0; i < global::kIirMaxNumFilters / 8; ++i) {
+                iir_filters_.iir8[i].~Iir8Filter();
+            }
         }
     }
 
@@ -424,6 +383,16 @@ public:
         right_fb_ = 0;
         damp_.Reset();
         hilbert_complex_.Reset();
+        if (dispatch_info_.lane_size == 4) {
+            for (size_t i = 0; i < global::kIirMaxNumFilters / 4; ++i) {
+                iir_filters_.iir4[i].Reset();
+            }
+        }
+        else if (dispatch_info_.lane_size == 8) {
+            for (size_t i = 0; i < global::kIirMaxNumFilters / 8; ++i) {
+                iir_filters_.iir8[i].Reset();
+            }
+        }
     }
 
     void Process(float* left_ptr, float* right_ptr, size_t len, SteepFlangerParameter& param) noexcept {
@@ -595,6 +564,7 @@ private:
         Iir8Filter iir8[global::kIirMaxNumFilters / 8];
     };
     IirFilters iir_filters_;
+    float iir_fir_k_{};
 
     // delay time lfo
     float phase_{};

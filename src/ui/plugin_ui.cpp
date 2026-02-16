@@ -353,6 +353,7 @@ PluginUi::PluginUi (SteepFlangerAudioProcessor& p)
 
     setSize(600, 264 + 30);
     custom_.setToggleState(p.dsp_param_.is_using_custom_, juce::sendNotificationSync);
+    iir_mode_.onClick();
     startTimerHz(30);
 }
 
@@ -459,7 +460,6 @@ void PluginUi::timerCallback() {
 
 void PluginUi::SetIirMode(bool is_iir) {
     minum_phase_.setVisible(!is_iir);
-    highpass_.setVisible(!is_iir);
     custom_.setVisible(!is_iir);
 
     if (is_iir) {

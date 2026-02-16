@@ -269,23 +269,36 @@ void SteepFlanger::ProcessVec4_Iir(
         double A = 1.0 / static_cast<double>(2 * N) * std::asinh(1.0 / eps);
         double k_re = std::sinh(A);
         double k_im = std::cosh(A);
-        double cutoff = param.fir_cutoff;
+
+        double cutoff = param.fir_cutoff / 2.0f;
+        if (param.fir_highpass) {
+            cutoff = std::numbers::pi_v<double> - cutoff;
+        }
+        cutoff = std::tan(cutoff / 2.0);
 
         // s域
         double k = 1;
         std::complex<double> half_spoles[global::kIirMaxNumFilters];
-        for (int i = 0; i < N; ++i) {
-            double phi = (2.0 * static_cast<double>(i + 1) - 1.0) * std::numbers::pi_v<double> / static_cast<double>(4 * N);
-            half_spoles[i] = cutoff * std::complex{k_re * -std::sin(phi), k_im * std::cos(phi)};
-            k *= std::norm(half_spoles[i]);
+        if (!param.fir_highpass) {
+            for (int i = 0; i < N; ++i) {
+                double phi = (2.0 * static_cast<double>(i + 1) - 1.0) * std::numbers::pi_v<double> / static_cast<double>(4 * N);
+                half_spoles[i] = cutoff * std::complex{k_re * -std::sin(phi), k_im * std::cos(phi)};
+                k *= std::norm(half_spoles[i]);
+            }
         }
-        k /= std::sqrt(1.0 + eps * eps);
+        else {
+            for (int i = 0; i < N; ++i) {
+                double phi = (2.0 * static_cast<double>(i + 1) - 1.0) * std::numbers::pi_v<double> / static_cast<double>(4 * N);
+                auto pole = std::complex{k_re * -std::sin(phi), k_im * std::cos(phi)};
+                half_spoles[i] = cutoff / pole;
+            }
+        }
 
         // 双线性变换
         std::complex<double> half_zpoles[global::kIirMaxNumFilters];
         for (int i = 0; i < N; ++i) {
             half_zpoles[i] = (1.0 + half_spoles[i]) / (1.0 - half_spoles[i]);
-            k /= std::real((1.0 - half_spoles[i]) * (1.0 - std::conj(half_spoles[i])));
+                k /= std::real((1.0 - half_spoles[i]) * (1.0 - std::conj(half_spoles[i])));
         }
 
         // 部分分式分解
@@ -295,6 +308,9 @@ void SteepFlanger::ProcessVec4_Iir(
 
             std::complex<double> up = 1.0;
             std::complex<double> tmp_up = zpole + 1.0;
+            if (param.fir_highpass) {
+                tmp_up = zpole - 1.0;
+            }
             for (int j = 0; j < N; ++j) {
                 up *= tmp_up;
                 up *= tmp_up;
@@ -322,13 +338,13 @@ void SteepFlanger::ProcessVec4_Iir(
         int residual_4_num = N % 4;
 
         for (int i = 0; i < full_4_num; ++i) {
-            simd::Float128 b1{
-                static_cast<float>(k * residual_ptr[0].real()),
-                static_cast<float>(k * residual_ptr[1].real()),
-                static_cast<float>(k * residual_ptr[2].real()),
-                static_cast<float>(k * residual_ptr[3].real()),
+            simd::Float128 b0{
+                static_cast<float>(2 * k * residual_ptr[0].real()),
+                static_cast<float>(2 * k * residual_ptr[1].real()),
+                static_cast<float>(2 * k * residual_ptr[2].real()),
+                static_cast<float>(2 * k * residual_ptr[3].real()),
             };
-            simd::Float128 b2{
+            simd::Float128 b1{
                 static_cast<float>(k * -2 * std::real(residual_ptr[0] * std::conj(pole_ptr[0]))),
                 static_cast<float>(k * -2 * std::real(residual_ptr[1] * std::conj(pole_ptr[1]))),
                 static_cast<float>(k * -2 * std::real(residual_ptr[2] * std::conj(pole_ptr[2]))),
@@ -349,22 +365,24 @@ void SteepFlanger::ProcessVec4_Iir(
             residual_ptr += 4;
             pole_ptr += 4;
             
-            filters[i].Set(b1, b2, a1, a2);
+            filters[i].Set(b0, b1, a1, a2);
         }
 
         if (residual_4_num != 0) {
+            simd::Float128 b0{};
             simd::Float128 b1{};
-            simd::Float128 b2{};
             simd::Float128 a1{};
             simd::Float128 a2{};
             for (int i = 0; i < residual_4_num; ++i) {
-                b1[i] = static_cast<float>(residual_ptr[i].real());
-                b2[i] = static_cast<float>(-2 * std::real(residual_ptr[i] * std::conj(pole_ptr[i])));
+                b0[i] = static_cast<float>(k * 2 * residual_ptr[i].real());
+                b1[i] = static_cast<float>(k * -2 * std::real(residual_ptr[i] * std::conj(pole_ptr[i])));
                 a1[i] = static_cast<float>(-2 * std::real(pole_ptr[i]));
                 a2[i] = static_cast<float>(std::norm(pole_ptr[i]));
             }
-            filters[full_4_num].Set(b1, b2, a1, a2);
+            filters[full_4_num].Set(b0, b1, a1, a2);
         }
+
+        iir_fir_k_ = static_cast<float>(k);
     }
 
     // -------------------- 处理中 --------------------
@@ -423,13 +441,14 @@ void SteepFlanger::ProcessVec4_Iir(
                 curr_num_notch += delta_num_notch;
                 curr_damp_coeff += delta_damp_coeff;
     
-                float left_sum = 0;
-                float const left_num_notch = curr_num_notch[0];
                 float left_in = *left_ptr + left_fb_ * feedback_mul;
-                float right_sum = 0;
-                float const right_num_notch = curr_num_notch[1];
                 float right_in = *right_ptr + right_fb_ * feedback_mul;
+                float const left_num_notch = curr_num_notch[0];
+                float const right_num_notch = curr_num_notch[1];
                 auto& filters = iir_filters_.iir4;
+
+                float right_sum = left_in * iir_fir_k_;
+                float left_sum = right_in * iir_fir_k_;
                 for (size_t i = 0; i < num_simd_filter; ++i) {
                     auto[l, r] = filters[i].Tick(left_in, right_in, left_num_notch, right_num_notch);
                     left_sum += l;

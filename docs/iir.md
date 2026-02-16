@@ -34,20 +34,25 @@ $$zk[i] = \frac{wc*wc}{\Re{(1 - pole[i]) * (1 - conj[pole[i]])}}$$
 
 ## residualz 转并行
 现在的滤波器形式是
-$$H(z) = \prod_{i=0}^{N-1} \frac{(z+1)^2}{(z-zpole)(z-conj\{zpole\})}$$
+$$H(z) = \prod_{i=0}^{N-1} \frac{(z+1)^2}{(z-zpole)(z-conj\{zpole\})}
+       = \prod_{i=0}^{N-1} \frac{(z^-1+1)^2}{(1-zpole*z^-1)(1-conj\{zpole\}*z^-1)} $$
 
 计算第i个极点对应的留数为H(zpole)(z-zpole)，在实现的时候分母运算时不计算，只计算其他的极点  
 
 现在应该得到了
-$$\sum_{i=0}^{N-1} \frac{rz}{z-p} \frac{conj[r]z}{z-conj[p]} = \frac{2Re[r]z-2Re[r*conj[p]]}{z^2-2Re[p]z+norm[p]}$$
+$$\sum_{i=0}^{N-1} \frac{r}{z-p} \frac{conj[r]}{z-conj[p]} = \frac{2Re[r]z-2Re[r*conj[p]]}{z^2-2Re[p]z+norm[p]}$$
+
+> 我还以为常数项可以这样算，你要是用scipy运算的话真的是可以得到下面这个等式的，但我用的遮盖法如果这样计算反而是错误的  
+> 因为len(zpole) = len(zzero)  
+> 常数项$C = \lim_{z^-1 \to 0} H(z^-1) - \sum_{i=0}^{N-1} 2\Re{\{r[i]\}} = 1-\sum_{i=0}^{N-1} 2\Re{\{r[i]\}} $
 
 因为len(zpole) = len(zzero)  
-常数项$C = H(0) = \frac{1}{\prod_{i=0}^{N-1} norm[zpole]}$
+常数项$C = \lim_{z^-1 \to 0} H(z^-1) = 1 $
 
 ## 使用 DF系列
-$b0 = 0$  
+$b0 = 0$   
 $b1 = 2Re[r]$  
-$b2 = 2Re[r*conj[p]]$  
+$b2 = -2Re[r*conj[p]]$  
 $a0 = 1$  
 $a1 = -2Re[p]$  
 $a2 = norm[p]$
