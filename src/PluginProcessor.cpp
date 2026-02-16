@@ -215,7 +215,7 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         auto p = std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"ripple", 1},
             "ripple",
-            juce::NormalisableRange<float>{0.1f, 20.0f, 0.1f},
+            juce::NormalisableRange<float>{0.1f, 40.0f, 0.1f},
             1.0f
         );
         param_iir_ripple_ = p.get();

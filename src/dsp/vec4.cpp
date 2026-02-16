@@ -276,8 +276,15 @@ void SteepFlanger::ProcessVec4_Iir(
         }
         cutoff = std::tan(cutoff / 2.0);
 
+        if (last_iir_highpass_ != param.fir_highpass) {
+            last_iir_highpass_ = param.fir_highpass;
+            for (size_t i = 0; i < global::kIirMaxNumFilters / 4; ++i) {
+                iir_filters_.iir4[i].Reset();
+            }
+        }
+
         // s域
-        double k = 1;
+        double k = 1.0;
         std::complex<double> half_spoles[global::kIirMaxNumFilters];
         if (!param.fir_highpass) {
             for (int i = 0; i < N; ++i) {
@@ -391,13 +398,8 @@ void SteepFlanger::ProcessVec4_Iir(
         size_t num_process = std::min<size_t>(512, cando);
         cando -= num_process;
 
-        constexpr float kWarpFactor = -0.8f;
-        float warp_drywet = param.drywet;
-        warp_drywet = 2.0f * warp_drywet - 1.0f;
-        warp_drywet = (warp_drywet - kWarpFactor) / (1.0f - warp_drywet * kWarpFactor);
-        warp_drywet = 0.5f * warp_drywet + 0.5f;
-        warp_drywet = std::clamp(warp_drywet, 0.0f, 1.0f);
-        float feedback_mul = warp_drywet * param.feedback;
+        float dry_mix = 1.0f - param.drywet;
+        float wet_mix = param.drywet;
 
         float const damp_pitch = param.damp_pitch;
         float const damp_freq = qwqdsp::convert::Pitch2Freq(damp_pitch);
@@ -441,8 +443,8 @@ void SteepFlanger::ProcessVec4_Iir(
                 curr_num_notch += delta_num_notch;
                 curr_damp_coeff += delta_damp_coeff;
     
-                float left_in = *left_ptr + left_fb_ * feedback_mul;
-                float right_in = *right_ptr + right_fb_ * feedback_mul;
+                float const left_in = *left_ptr;
+                float const right_in = *right_ptr;
                 float const left_num_notch = curr_num_notch[0];
                 float const right_num_notch = curr_num_notch[1];
                 auto& filters = iir_filters_.iir4;
@@ -455,17 +457,10 @@ void SteepFlanger::ProcessVec4_Iir(
                     right_sum += r;
                 }
 
-                simd::Float128 damp_x;
-                damp_x[0] = left_sum;
-                damp_x[1] = right_sum;
-                *left_ptr = left_sum * fir_gain_;
-                *right_ptr = right_sum * fir_gain_;
+                *left_ptr = left_sum * wet_mix + left_in * dry_mix;
+                *right_ptr = right_sum * wet_mix + right_in * dry_mix;
                 ++left_ptr;
                 ++right_ptr;
-                damp_x = damp_.TickLowpass(damp_x, simd::BroadcastF128(curr_damp_coeff));
-                auto dc_remove = dc_.TickHighpass(damp_x, simd::BroadcastF128(0.0005f));
-                left_fb_ = qwqdsp::polymath::ArctanPade(dc_remove[0]);
-                right_fb_ = qwqdsp::polymath::ArctanPade(dc_remove[1]);
             }
         }
         else {

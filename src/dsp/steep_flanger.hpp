@@ -237,6 +237,24 @@ public:
         return {simd::ReduceAdd(y_l), simd::ReduceAdd(y_r)};
     }
 
+    std::array<std::complex<float>, 2> TickCpx(
+        float left, float right,
+        float delay_l, float delay_r,
+        std::complex<float> zrotate_l, std::complex<float> zrotate_r) noexcept {
+        auto s_l = delay_l_.GetBeforePush(delay_l);
+        auto s_r = delay_r_.GetBeforePush(delay_r);
+
+        auto y_l = s_l.s1;
+        auto y_r = s_r.s1;
+        auto s1_l = left * b1_ - y_l * a1_ + s_l.s2;
+        auto s1_r = right * b1_ - y_r * a1_ + s_r.s2;
+        auto s2_l = left * b2_ -y_l * a2_;
+        auto s2_r = right * b2_ -y_r * a2_;
+        delay_l_.Push(typename decltype(delay_l_)::State{s1_l, s2_l});
+        delay_r_.Push(typename decltype(delay_r_)::State{s1_r, s2_r});
+        return {simd::ReduceAdd(y_l), simd::ReduceAdd(y_r)};
+    }
+
     void Set(T b1, T b2, T a1, T a2) noexcept {
         b1_ = b1;
         b2_ = b2;
@@ -565,6 +583,7 @@ private:
     };
     IirFilters iir_filters_;
     float iir_fir_k_{};
+    bool last_iir_highpass_{false};
 
     // delay time lfo
     float phase_{};

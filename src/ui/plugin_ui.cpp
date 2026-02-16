@@ -461,6 +461,8 @@ void PluginUi::timerCallback() {
 void PluginUi::SetIirMode(bool is_iir) {
     minum_phase_.setVisible(!is_iir);
     custom_.setVisible(!is_iir);
+    fb_damp_.setEnabled(!is_iir);
+    fb_value_.setEnabled(!is_iir);
 
     if (is_iir) {
         coeff_len_.BindParam(p_.param_iir_filter_num_);
