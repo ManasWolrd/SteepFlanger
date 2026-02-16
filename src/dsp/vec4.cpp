@@ -345,48 +345,48 @@ void SteepFlanger::ProcessVec4_Iir(
         int residual_4_num = N % 4;
 
         for (int i = 0; i < full_4_num; ++i) {
-            simd::Float128 b0{
+            simd::Float128 r_re{
                 static_cast<float>(2 * k * residual_ptr[0].real()),
                 static_cast<float>(2 * k * residual_ptr[1].real()),
                 static_cast<float>(2 * k * residual_ptr[2].real()),
                 static_cast<float>(2 * k * residual_ptr[3].real()),
             };
-            simd::Float128 b1{
-                static_cast<float>(k * -2 * std::real(residual_ptr[0] * std::conj(pole_ptr[0]))),
-                static_cast<float>(k * -2 * std::real(residual_ptr[1] * std::conj(pole_ptr[1]))),
-                static_cast<float>(k * -2 * std::real(residual_ptr[2] * std::conj(pole_ptr[2]))),
-                static_cast<float>(k * -2 * std::real(residual_ptr[3] * std::conj(pole_ptr[3]))),
+            simd::Float128 r_im{
+                static_cast<float>(2 * k * residual_ptr[0].imag()),
+                static_cast<float>(2 * k * residual_ptr[1].imag()),
+                static_cast<float>(2 * k * residual_ptr[2].imag()),
+                static_cast<float>(2 * k * residual_ptr[3].imag()),
             };
-            simd::Float128 a1{
-                static_cast<float>(-2 * std::real(pole_ptr[0])),
-                static_cast<float>(-2 * std::real(pole_ptr[1])),
-                static_cast<float>(-2 * std::real(pole_ptr[2])),
-                static_cast<float>(-2 * std::real(pole_ptr[3])),
+            simd::Float128 p_re{
+                static_cast<float>(std::real(pole_ptr[0])),
+                static_cast<float>(std::real(pole_ptr[1])),
+                static_cast<float>(std::real(pole_ptr[2])),
+                static_cast<float>(std::real(pole_ptr[3])),
             };
-            simd::Float128 a2{
-                static_cast<float>(std::norm(pole_ptr[0])),
-                static_cast<float>(std::norm(pole_ptr[1])),
-                static_cast<float>(std::norm(pole_ptr[2])),
-                static_cast<float>(std::norm(pole_ptr[3])),
+            simd::Float128 p_im{
+                static_cast<float>(std::imag(pole_ptr[0])),
+                static_cast<float>(std::imag(pole_ptr[1])),
+                static_cast<float>(std::imag(pole_ptr[2])),
+                static_cast<float>(std::imag(pole_ptr[3])),
             };
             residual_ptr += 4;
             pole_ptr += 4;
             
-            filters[i].Set(b0, b1, a1, a2);
+            filters[i].Set(SimdComplex<simd::Float128>{r_re, r_im}, SimdComplex<simd::Float128>{p_re, p_im});
         }
 
         if (residual_4_num != 0) {
-            simd::Float128 b0{};
-            simd::Float128 b1{};
-            simd::Float128 a1{};
-            simd::Float128 a2{};
+            simd::Float128 r_re{};
+            simd::Float128 r_im{};
+            simd::Float128 p_re{};
+            simd::Float128 p_im{};
             for (int i = 0; i < residual_4_num; ++i) {
-                b0[i] = static_cast<float>(k * 2 * residual_ptr[i].real());
-                b1[i] = static_cast<float>(k * -2 * std::real(residual_ptr[i] * std::conj(pole_ptr[i])));
-                a1[i] = static_cast<float>(-2 * std::real(pole_ptr[i]));
-                a2[i] = static_cast<float>(std::norm(pole_ptr[i]));
+                r_re[i] = static_cast<float>(2 * k * residual_ptr[i].real());
+                r_im[i] = static_cast<float>(2 * k * residual_ptr[i].imag());
+                p_re[i] = static_cast<float>(std::real(pole_ptr[i]));
+                p_im[i] = static_cast<float>(std::imag(pole_ptr[i]));
             }
-            filters[full_4_num].Set(b0, b1, a1, a2);
+            filters[full_4_num].Set(SimdComplex<simd::Float128>{r_re, r_im}, SimdComplex<simd::Float128>{p_re, p_im});
         }
 
         iir_fir_k_ = static_cast<float>(k);
@@ -451,11 +451,13 @@ void SteepFlanger::ProcessVec4_Iir(
 
                 float right_sum = left_in * iir_fir_k_;
                 float left_sum = right_in * iir_fir_k_;
+                auto in_delay = iir_x_delay_.GetBeforePush(left_num_notch);
                 for (size_t i = 0; i < num_simd_filter; ++i) {
-                    auto[l, r] = filters[i].Tick(left_in, right_in, left_num_notch, right_num_notch);
+                    auto[l, r] = filters[i].Tick(in_delay[0], in_delay[1], left_num_notch, left_num_notch);
                     left_sum += l;
                     right_sum += r;
                 }
+                iir_x_delay_.Push(simd::Float128{left_in, right_in});
 
                 *left_ptr = left_sum * wet_mix + left_in * dry_mix;
                 *right_ptr = right_sum * wet_mix + right_in * dry_mix;
@@ -464,6 +466,45 @@ void SteepFlanger::ProcessVec4_Iir(
             }
         }
         else {
+            for (size_t j = 0; j < num_process; ++j) {
+                curr_num_notch += delta_num_notch;
+                curr_damp_coeff += delta_damp_coeff;
+    
+                float const left_in = *left_ptr;
+                float const right_in = *right_ptr;
+                float const left_num_notch = curr_num_notch[0];
+                float const right_num_notch = curr_num_notch[1];
+                auto& filters = iir_filters_.iir4;
+
+                std::complex<float> right_sum = left_in * iir_fir_k_;
+                std::complex<float> left_sum = right_in * iir_fir_k_;
+                auto in_delay = iir_x_delay_.GetBeforePush(left_num_notch);
+
+                auto const addition_rotation = std::polar(1.0f, barber_phase_smoother_.Tick() * std::numbers::pi_v<float> * 2);
+                barber_oscillator_.Tick();
+                auto const rotation_once = barber_oscillator_.GetCpx() * addition_rotation;
+                auto const right_channel_rotation = std::polar(1.0f, param.barber_stereo_phase);
+                auto left_rotate = rotation_once;
+                auto right_rotate = rotation_once * right_channel_rotation;
+
+                for (size_t i = 0; i < num_simd_filter; ++i) {
+                    auto[l, r] = filters[i].TickCpx(in_delay[0], in_delay[1], left_num_notch, left_num_notch, left_rotate, right_rotate);
+                    left_sum += l / 2.0f;
+                    right_sum += r / 2.0f;
+                }
+                iir_x_delay_.Push(simd::Float128{left_in, right_in});
+
+                auto remove_positive_spectrum = hilbert_complex_.Tick(simd::Float128{
+                    left_sum.real(), left_sum.imag(), right_sum.real(), right_sum.imag()
+                });
+                // this will mirror the positive spectrum to negative domain, forming a real value signal
+                auto damp_x = simd::Shuffle<simd::Float128, 0, 2, 1, 3>(remove_positive_spectrum, remove_positive_spectrum);
+
+                *left_ptr = damp_x[0] * wet_mix + left_in * dry_mix;
+                *right_ptr = damp_x[1] * wet_mix + right_in * dry_mix;
+                ++left_ptr;
+                ++right_ptr;
+            }
             // for (size_t j = 0; j < num_process; ++j) {
             //     curr_damp_coeff += delta_damp_coeff;
             //     curr_num_notch += delta_num_notch;
