@@ -402,7 +402,7 @@ void PluginUi::resized() {
             auto fir_block = topblock.removeFromLeft(80 * 4);
             fir_bound_ = fir_block;
             {
-                auto fir_title = fir_block.removeFromTop(25);
+                auto fir_title = fir_block.removeFromTop(25).reduced(2, 0);
                 minum_phase_.setBounds(fir_title.removeFromRight(100).reduced(2, 0));
                 highpass_.setBounds(fir_title.removeFromRight(70).reduced(2, 0));
                 custom_.setBounds(fir_title.removeFromRight(60).reduced(2, 0));

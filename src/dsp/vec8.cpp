@@ -272,4 +272,277 @@ void SteepFlanger::ProcessVec8_Iir(
     float* left_ptr, float* right_ptr, size_t len,
     SteepFlangerParameter& param
 ) noexcept {
+    if (param.should_update_iir_.exchange(false)) {
+        int N = static_cast<int>(param.iir_num_filters);
+        double eps = std::sqrt(std::pow(10.0, param.ripple / 10.0) - 1.0);
+        double A = 1.0 / static_cast<double>(2 * N) * std::asinh(1.0 / eps);
+        double k_re = std::sinh(A);
+        double k_im = std::cosh(A);
+
+        double cutoff = param.fir_cutoff;
+        if (param.fir_highpass) {
+            cutoff = std::numbers::pi_v<double> - cutoff;
+        }
+        cutoff = std::tan(cutoff / 2.0);
+
+        if (last_iir_highpass_ != param.fir_highpass) {
+            last_iir_highpass_ = param.fir_highpass;
+            for (size_t i = 0; i < global::kIirMaxNumFilters / 8; ++i) {
+                iir_filters_.iir8[i].Reset();
+            }
+        }
+
+        // s域
+        double k = 1.0;
+        std::complex<double> half_spoles[global::kIirMaxNumFilters];
+        if (!param.fir_highpass) {
+            for (int i = 0; i < N; ++i) {
+                double phi = (2.0 * static_cast<double>(i + 1) - 1.0) * std::numbers::pi_v<double> / static_cast<double>(4 * N);
+                half_spoles[i] = cutoff * std::complex{k_re * -std::sin(phi), k_im * std::cos(phi)};
+                k *= std::norm(half_spoles[i]);
+            }
+        }
+        else {
+            for (int i = 0; i < N; ++i) {
+                double phi = (2.0 * static_cast<double>(i + 1) - 1.0) * std::numbers::pi_v<double> / static_cast<double>(4 * N);
+                auto pole = std::complex{k_re * -std::sin(phi), k_im * std::cos(phi)};
+                half_spoles[i] = cutoff / pole;
+            }
+        }
+
+        // 双线性变换
+        std::complex<double> half_zpoles[global::kIirMaxNumFilters];
+        for (int i = 0; i < N; ++i) {
+            half_zpoles[i] = (1.0 + half_spoles[i]) / (1.0 - half_spoles[i]);
+                k /= std::real((1.0 - half_spoles[i]) * (1.0 - std::conj(half_spoles[i])));
+        }
+
+        // 部分分式分解
+        std::complex<double> residual[global::kIirMaxNumFilters];
+        for (int i = 0; i < N; ++i) {
+            auto zpole = half_zpoles[i];
+
+            std::complex<double> up = 1.0;
+            std::complex<double> tmp_up = zpole + 1.0;
+            if (param.fir_highpass) {
+                tmp_up = zpole - 1.0;
+            }
+            for (int j = 0; j < N; ++j) {
+                up *= tmp_up;
+                up *= tmp_up;
+            }
+
+            std::complex<double> down = 1.0;
+            for (int j = 0; j < N; ++j) {
+                if (i == j) {
+                    down *= (zpole - std::conj(half_zpoles[j]));
+                }
+                else {
+                    down *= (zpole - half_zpoles[j]);
+                    down *= (zpole - std::conj(half_zpoles[j]));
+                }
+            }
+
+            residual[i] = up / down;
+        }
+
+        // 设定滤波器系数
+        auto& filters = iir_filters_.iir8;
+        auto* residual_ptr = &residual[0];
+        auto* pole_ptr = &half_zpoles[0];
+        int full_8_num = N / 8;
+        int residual_8_num = N % 8;
+
+        for (int i = 0; i < full_8_num; ++i) {
+            simd::Float256 r_re{
+                static_cast<float>(2 * k * residual_ptr[0].real()),
+                static_cast<float>(2 * k * residual_ptr[1].real()),
+                static_cast<float>(2 * k * residual_ptr[2].real()),
+                static_cast<float>(2 * k * residual_ptr[3].real()),
+                static_cast<float>(2 * k * residual_ptr[4].real()),
+                static_cast<float>(2 * k * residual_ptr[5].real()),
+                static_cast<float>(2 * k * residual_ptr[6].real()),
+                static_cast<float>(2 * k * residual_ptr[7].real()),
+            };
+            simd::Float256 r_im{
+                static_cast<float>(2 * k * residual_ptr[0].imag()),
+                static_cast<float>(2 * k * residual_ptr[1].imag()),
+                static_cast<float>(2 * k * residual_ptr[2].imag()),
+                static_cast<float>(2 * k * residual_ptr[3].imag()),
+                static_cast<float>(2 * k * residual_ptr[4].imag()),
+                static_cast<float>(2 * k * residual_ptr[5].imag()),
+                static_cast<float>(2 * k * residual_ptr[6].imag()),
+                static_cast<float>(2 * k * residual_ptr[7].imag()),
+            };
+            simd::Float256 p_re{
+                static_cast<float>(std::real(pole_ptr[0])),
+                static_cast<float>(std::real(pole_ptr[1])),
+                static_cast<float>(std::real(pole_ptr[2])),
+                static_cast<float>(std::real(pole_ptr[3])),
+                static_cast<float>(std::real(pole_ptr[4])),
+                static_cast<float>(std::real(pole_ptr[5])),
+                static_cast<float>(std::real(pole_ptr[6])),
+                static_cast<float>(std::real(pole_ptr[7])),
+            };
+            simd::Float256 p_im{
+                static_cast<float>(std::imag(pole_ptr[0])),
+                static_cast<float>(std::imag(pole_ptr[1])),
+                static_cast<float>(std::imag(pole_ptr[2])),
+                static_cast<float>(std::imag(pole_ptr[3])),
+                static_cast<float>(std::imag(pole_ptr[4])),
+                static_cast<float>(std::imag(pole_ptr[5])),
+                static_cast<float>(std::imag(pole_ptr[6])),
+                static_cast<float>(std::imag(pole_ptr[7])),
+            };
+            residual_ptr += 8;
+            pole_ptr += 8;
+            
+            filters[i].Set(SimdComplex<simd::Float256>{r_re, r_im}, SimdComplex<simd::Float256>{p_re, p_im});
+        }
+
+        if (residual_8_num != 0) {
+            simd::Float256 r_re{};
+            simd::Float256 r_im{};
+            simd::Float256 p_re{};
+            simd::Float256 p_im{};
+            for (int i = 0; i < residual_8_num; ++i) {
+                r_re[i] = static_cast<float>(2 * k * residual_ptr[i].real());
+                r_im[i] = static_cast<float>(2 * k * residual_ptr[i].imag());
+                p_re[i] = static_cast<float>(std::real(pole_ptr[i]));
+                p_im[i] = static_cast<float>(std::imag(pole_ptr[i]));
+            }
+            filters[full_8_num].Set(SimdComplex<simd::Float256>{r_re, r_im}, SimdComplex<simd::Float256>{p_re, p_im});
+        }
+
+        iir_fir_k_ = static_cast<float>(k);
+    }
+
+    // -------------------- 处理中 --------------------
+    size_t cando = len;
+    while (cando != 0) {
+        size_t num_process = std::min<size_t>(512, cando);
+        cando -= num_process;
+
+        float dry_mix = 1.0f - param.drywet;
+        float wet_mix = param.drywet;
+
+        float const damp_pitch = param.damp_pitch;
+        float const damp_freq = qwqdsp::convert::Pitch2Freq(damp_pitch);
+        float const damp_w = qwqdsp::convert::Freq2W(damp_freq, fs_);
+        damp_lowpass_coeff_ = damp_.ComputeCoeff(damp_w);
+
+        barber_phase_smoother_.SetTarget(param.barber_phase);
+        barber_oscillator_.SetFreq(param.barber_speed, fs_);
+
+        // update delay times
+        phase_ += param.lfo_freq / fs_ * static_cast<float>(num_process);
+        float right_phase = phase_ + param.lfo_phase;
+        {
+            float t;
+            phase_ = std::modf(phase_, &t);
+            right_phase = std::modf(right_phase, &t);
+        }
+        float left_phase = phase_;
+
+        simd::Float128 lfo_modu;
+        lfo_modu[0] = qwqdsp::polymath::SinPi(left_phase * std::numbers::pi_v<float>);
+        lfo_modu[1] = qwqdsp::polymath::SinPi(right_phase * std::numbers::pi_v<float>);
+
+        float const delay_samples = param.delay_ms * fs_ / 1000.0f;
+        float const depth_samples = param.depth_ms * fs_ / 1000.0f;
+        auto target_delay_samples = delay_samples + lfo_modu * depth_samples;
+        target_delay_samples = simd::Max128(target_delay_samples, simd::BroadcastF128(1.0f));
+        float const delay_time_smooth_factor = 1.0f - std::exp(-1.0f / (fs_ / static_cast<float>(num_process) * kDelaySmoothMs / 1000.0f));
+        last_exp_delay_samples_ += delay_time_smooth_factor * (target_delay_samples - last_exp_delay_samples_);
+        auto curr_num_notch = last_delay_samples_;
+        auto delta_num_notch = (last_exp_delay_samples_ - curr_num_notch) / static_cast<float>(num_process);
+
+        float curr_damp_coeff = last_damp_lowpass_coeff_;
+        float delta_damp_coeff = (damp_lowpass_coeff_ - curr_damp_coeff) / (static_cast<float>(num_process));
+
+        float const inv_samples = 1.0f / static_cast<float>(num_process);
+        size_t num_simd_filter = (param.iir_num_filters + 7) / 8;
+
+        if (!param.barber_enable) {
+            for (size_t j = 0; j < num_process; ++j) {
+                curr_num_notch += delta_num_notch;
+                curr_damp_coeff += delta_damp_coeff;
+    
+                float const left_in = *left_ptr;
+                float const right_in = *right_ptr;
+                float const left_num_notch = curr_num_notch[0];
+                float const right_num_notch = curr_num_notch[1];
+                auto& filters = iir_filters_.iir8;
+
+                float right_sum = left_in * iir_fir_k_;
+                float left_sum = right_in * iir_fir_k_;
+                float x_left = iir_x_delay_.GetBeforePush<0>(left_num_notch);
+                float x_right = iir_x_delay_.GetBeforePush<1>(right_num_notch);
+                for (size_t i = 0; i < num_simd_filter; ++i) {
+                    auto[l, r] = filters[i].Tick(x_left, x_right, left_num_notch, left_num_notch);
+                    left_sum += l;
+                    right_sum += r;
+                }
+                iir_x_delay_.Push(left_in, right_in);
+
+                *left_ptr = left_sum * wet_mix + left_in * dry_mix;
+                *right_ptr = right_sum * wet_mix + right_in * dry_mix;
+                ++left_ptr;
+                ++right_ptr;
+            }
+        }
+        else {
+            for (size_t j = 0; j < num_process; ++j) {
+                curr_num_notch += delta_num_notch;
+                curr_damp_coeff += delta_damp_coeff;
+    
+                float const left_in = *left_ptr;
+                float const right_in = *right_ptr;
+                float const left_num_notch = curr_num_notch[0];
+                float const right_num_notch = curr_num_notch[1];
+                auto& filters = iir_filters_.iir8;
+
+                std::complex<float> right_sum = 0;
+                std::complex<float> left_sum = 0;
+                float x_left = iir_x_delay_.GetBeforePush<0>(left_num_notch);
+                float x_right = iir_x_delay_.GetBeforePush<1>(right_num_notch);
+
+                auto const addition_rotation = std::polar(1.0f, barber_phase_smoother_.Tick() * std::numbers::pi_v<float> * 2);
+                barber_oscillator_.Tick();
+                auto const rotation_once = barber_oscillator_.GetCpx() * addition_rotation;
+                auto const right_channel_rotation = std::polar(1.0f, param.barber_stereo_phase);
+                auto left_rotate = rotation_once;
+                auto right_rotate = rotation_once * right_channel_rotation;
+
+                for (size_t i = 0; i < num_simd_filter; ++i) {
+                    auto[l, r] = filters[i].TickCpx(x_left, x_right, left_num_notch, left_num_notch, left_rotate, right_rotate);
+                    left_sum += l;
+                    right_sum += r;
+                }
+                iir_x_delay_.Push(left_in, right_in);
+                left_sum = left_sum * 0.5f + left_in * iir_fir_k_;
+                right_sum = right_sum * 0.5f + right_in * iir_fir_k_;
+
+                auto remove_positive_spectrum = hilbert_complex_.Tick(simd::Float128{
+                    left_sum.real(), left_sum.imag(), right_sum.real(), right_sum.imag()
+                });
+                // this will mirror the positive spectrum to negative domain, forming a real value signal
+                auto damp_x = simd::Shuffle<simd::Float128, 0, 2, 1, 3>(remove_positive_spectrum, remove_positive_spectrum);
+
+                *left_ptr = damp_x[0] * wet_mix + left_in * dry_mix;
+                *right_ptr = damp_x[1] * wet_mix + right_in * dry_mix;
+                ++left_ptr;
+                ++right_ptr;
+            }
+
+            barber_osc_keep_amp_counter_ += len;
+            [[unlikely]]
+            if (barber_osc_keep_amp_counter_ > barber_osc_keep_amp_need_) {
+                barber_osc_keep_amp_counter_ = 0;
+                barber_oscillator_.KeepAmp();
+            }
+        }
+        last_delay_samples_ = last_exp_delay_samples_;
+        last_damp_lowpass_coeff_ = damp_lowpass_coeff_;
+    }
 }

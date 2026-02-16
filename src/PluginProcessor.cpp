@@ -36,7 +36,7 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         layout.add(std::move(p));
     }
     {
-        auto[pfreq, ptype] = delay_lfo_state_.Build("speed", 0, 10, 0.01f, 0.4f, true, "0", "1/64");
+        auto[pfreq, ptype] = delay_lfo_state_.Build("speed", 0, 10, 0.01f, 0.4f, true, "0", "1/64", 0.2f, "4", false);
         layout.add(std::move(pfreq));
         layout.add(std::move(ptype));
     }
@@ -174,7 +174,7 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         layout.add(std::move(p));
     }
     {
-        auto[p, p2] = barber_lfo_state_.Build("barber_speed", -10.0f, 10.0f, 0.01f, 0.4f, true, "-1/64", "1/64");
+        auto[p, p2] = barber_lfo_state_.Build("barber_speed", -10.0f, 10.0f, 0.01f, 0.4f, true, "-1/64", "1/64", 0.2f, "1", false);
         layout.add(std::move(p));
         layout.add(std::move(p2));
     }

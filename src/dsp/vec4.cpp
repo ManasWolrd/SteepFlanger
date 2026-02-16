@@ -451,13 +451,14 @@ void SteepFlanger::ProcessVec4_Iir(
 
                 float right_sum = left_in * iir_fir_k_;
                 float left_sum = right_in * iir_fir_k_;
-                auto in_delay = iir_x_delay_.GetBeforePush(left_num_notch);
+                float x_left = iir_x_delay_.GetBeforePush<0>(left_num_notch);
+                float x_right = iir_x_delay_.GetBeforePush<1>(right_num_notch);
                 for (size_t i = 0; i < num_simd_filter; ++i) {
-                    auto[l, r] = filters[i].Tick(in_delay[0], in_delay[1], left_num_notch, left_num_notch);
+                    auto[l, r] = filters[i].Tick(x_left, x_right, left_num_notch, left_num_notch);
                     left_sum += l;
                     right_sum += r;
                 }
-                iir_x_delay_.Push(simd::Float128{left_in, right_in});
+                iir_x_delay_.Push(left_in, right_in);
 
                 *left_ptr = left_sum * wet_mix + left_in * dry_mix;
                 *right_ptr = right_sum * wet_mix + right_in * dry_mix;
@@ -476,9 +477,10 @@ void SteepFlanger::ProcessVec4_Iir(
                 float const right_num_notch = curr_num_notch[1];
                 auto& filters = iir_filters_.iir4;
 
-                std::complex<float> right_sum = left_in * iir_fir_k_;
-                std::complex<float> left_sum = right_in * iir_fir_k_;
-                auto in_delay = iir_x_delay_.GetBeforePush(left_num_notch);
+                std::complex<float> right_sum = 0;
+                std::complex<float> left_sum = 0;
+                float x_left = iir_x_delay_.GetBeforePush<0>(left_num_notch);
+                float x_right = iir_x_delay_.GetBeforePush<1>(right_num_notch);
 
                 auto const addition_rotation = std::polar(1.0f, barber_phase_smoother_.Tick() * std::numbers::pi_v<float> * 2);
                 barber_oscillator_.Tick();
@@ -488,11 +490,13 @@ void SteepFlanger::ProcessVec4_Iir(
                 auto right_rotate = rotation_once * right_channel_rotation;
 
                 for (size_t i = 0; i < num_simd_filter; ++i) {
-                    auto[l, r] = filters[i].TickCpx(in_delay[0], in_delay[1], left_num_notch, left_num_notch, left_rotate, right_rotate);
-                    left_sum += l / 2.0f;
-                    right_sum += r / 2.0f;
+                    auto[l, r] = filters[i].TickCpx(x_left, x_right, left_num_notch, left_num_notch, left_rotate, right_rotate);
+                    left_sum += l;
+                    right_sum += r;
                 }
-                iir_x_delay_.Push(simd::Float128{left_in, right_in});
+                iir_x_delay_.Push(left_in, right_in);
+                left_sum = left_sum * 0.5f + left_in * iir_fir_k_;
+                right_sum = right_sum * 0.5f + right_in * iir_fir_k_;
 
                 auto remove_positive_spectrum = hilbert_complex_.Tick(simd::Float128{
                     left_sum.real(), left_sum.imag(), right_sum.real(), right_sum.imag()
@@ -505,114 +509,13 @@ void SteepFlanger::ProcessVec4_Iir(
                 ++left_ptr;
                 ++right_ptr;
             }
-            // for (size_t j = 0; j < num_process; ++j) {
-            //     curr_damp_coeff += delta_damp_coeff;
-            //     curr_num_notch += delta_num_notch;
 
-            //     delay_left_.Push(*left_ptr + left_fb_ * feedback_mul);
-            //     delay_right_.Push(*right_ptr + right_fb_ * feedback_mul);
-
-            //     float const left_num_notch = curr_num_notch[0];
-            //     float const right_num_notch = curr_num_notch[1];
-            //     simd::Float128 left_current_delay;
-            //     simd::Float128 right_current_delay;
-            //     left_current_delay[0] = 0;
-            //     left_current_delay[1] = left_num_notch;
-            //     left_current_delay[2] = left_num_notch * 2;
-            //     left_current_delay[3] = left_num_notch * 3;
-            //     right_current_delay[0] = 0;
-            //     right_current_delay[1] = right_num_notch;
-            //     right_current_delay[2] = right_num_notch * 2;
-            //     right_current_delay[3] = right_num_notch * 3;
-            //     auto left_delay_inc = simd::BroadcastF128(left_num_notch * 4);
-            //     auto right_delay_inc = simd::BroadcastF128(right_num_notch * 4);
-
-            //     auto const addition_rotation = std::polar(1.0f, barber_phase_smoother_.Tick() * std::numbers::pi_v<float> * 2);
-            //     barber_oscillator_.Tick();
-            //     auto const rotation_once = barber_oscillator_.GetCpx() * addition_rotation;
-            //     auto const rotation_2 = rotation_once * rotation_once;
-            //     auto const rotation_3 = rotation_once * rotation_2;
-            //     auto const rotation_4 = rotation_2 * rotation_2;
-            //     auto const right_channel_rotation = std::polar(1.0f, param.barber_stereo_phase);
-            //     Complex32x4 left_rotation_coeff;
-            //     left_rotation_coeff.re[0] = 1;
-            //     left_rotation_coeff.re[1] = rotation_once.real();
-            //     left_rotation_coeff.re[2] = rotation_2.real();
-            //     left_rotation_coeff.re[3] = rotation_3.real();
-            //     left_rotation_coeff.im[0] = 0;
-            //     left_rotation_coeff.im[1] = rotation_once.imag();
-            //     left_rotation_coeff.im[2] = rotation_2.imag();
-            //     left_rotation_coeff.im[3] = rotation_3.imag();
-            //     Complex32x4 right_rotation_coeff = left_rotation_coeff;
-            //     right_rotation_coeff *= Complex32x4{
-            //         .re = simd::BroadcastF128(right_channel_rotation.real()),
-            //         .im = simd::BroadcastF128(right_channel_rotation.imag())
-            //     };
-            //     Complex32x4 left_rotation_mul{
-            //         .re = simd::BroadcastF128(rotation_4.real()),
-            //         .im = simd::BroadcastF128(rotation_4.imag())
-            //     };
-            //     Complex32x4 right_rotation_mul = left_rotation_mul;
-
-            //     float left_re_sum = 0;
-            //     float left_im_sum = 0;
-            //     float right_re_sum = 0;
-            //     float right_im_sum = 0;
-            //     for (size_t i = 0; i < coeff_len_div_4; ++i) {
-            //         auto left_taps_out = delay_left_.GetAfterPush(left_current_delay);
-            //         auto right_taps_out = delay_right_.GetAfterPush(right_current_delay);
-            //         left_current_delay += left_delay_inc;
-            //         right_current_delay += right_delay_inc;
-
-            //         left_taps_out *= last_coeffs_ptr[i];
-            //         auto temp = left_taps_out * left_rotation_coeff.re;
-            //         left_re_sum += temp[0];
-            //         left_re_sum += temp[1];
-            //         left_re_sum += temp[2];
-            //         left_re_sum += temp[3];
-            //         temp = left_taps_out * left_rotation_coeff.im;
-            //         left_im_sum += temp[0];
-            //         left_im_sum += temp[1];
-            //         left_im_sum += temp[2];
-            //         left_im_sum += temp[3];
-
-            //         right_taps_out *= last_coeffs_ptr[i];
-            //         temp = right_taps_out * right_rotation_coeff.re;
-            //         right_re_sum += temp[0];
-            //         right_re_sum += temp[1];
-            //         right_re_sum += temp[2];
-            //         right_re_sum += temp[3];
-            //         temp = right_taps_out * right_rotation_coeff.im;
-            //         right_im_sum += temp[0];
-            //         right_im_sum += temp[1];
-            //         right_im_sum += temp[2];
-            //         right_im_sum += temp[3];
-
-            //         left_rotation_coeff *= left_rotation_mul;
-            //         right_rotation_coeff *= right_rotation_mul;
-            //     }
-                
-            //     auto remove_positive_spectrum = hilbert_complex_.Tick(simd::Float128{
-            //         left_re_sum, left_im_sum, right_re_sum, right_im_sum
-            //     });
-            //     // this will mirror the positive spectrum to negative domain, forming a real value signal
-            //     auto damp_x = simd::Shuffle<simd::Float128, 0, 2, 1, 3>(remove_positive_spectrum, remove_positive_spectrum);
-            //     *left_ptr = damp_x[0] * fir_gain_;
-            //     *right_ptr = damp_x[1] * fir_gain_;
-            //     ++left_ptr;
-            //     ++right_ptr;
-            //     damp_x = damp_.TickLowpass(damp_x, simd::BroadcastF128(curr_damp_coeff));
-            //     auto dc_remove = dc_.TickHighpass(damp_x, simd::BroadcastF128(0.0005f));
-            //     left_fb_ = qwqdsp::polymath::ArctanPade(dc_remove[0]);
-            //     right_fb_ = qwqdsp::polymath::ArctanPade(dc_remove[1]);
-            // }
-
-            // barber_osc_keep_amp_counter_ += len;
-            // [[unlikely]]
-            // if (barber_osc_keep_amp_counter_ > barber_osc_keep_amp_need_) {
-            //     barber_osc_keep_amp_counter_ = 0;
-            //     barber_oscillator_.KeepAmp();
-            // }
+            barber_osc_keep_amp_counter_ += len;
+            [[unlikely]]
+            if (barber_osc_keep_amp_counter_ > barber_osc_keep_amp_need_) {
+                barber_osc_keep_amp_counter_ = 0;
+                barber_oscillator_.KeepAmp();
+            }
         }
         last_delay_samples_ = last_exp_delay_samples_;
         last_damp_lowpass_coeff_ = damp_lowpass_coeff_;

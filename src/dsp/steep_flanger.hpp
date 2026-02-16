@@ -165,6 +165,8 @@ public:
     struct State {
         T y_re;
         T y_im;
+        T y_conj_re;
+        T y_conj_im;
     };
 
     void Init(float max_ms, float fs) {
@@ -205,22 +207,34 @@ public:
         // auto d0 = (y1 - yn1) * 0.5f;
         auto d0_y_re = (y1.y_re - yn1.y_re) * 0.5f;
         auto d0_y_im = (y1.y_im - yn1.y_im) * 0.5f;
+        auto d0_y_conj_re = (y1.y_conj_re - yn1.y_conj_re) * 0.5f;
+        auto d0_y_conj_im = (y1.y_conj_im - yn1.y_conj_im) * 0.5f;
         // auto d1 = (y2 - y0) * 0.5f;
         auto d1_y_re = (y2.y_re - y0.y_re) * 0.5f;
         auto d1_y_im = (y2.y_im - y0.y_im) * 0.5f;
+        auto d1_y_conj_re = (y2.y_conj_re - y0.y_conj_re) * 0.5f;
+        auto d1_y_conj_im = (y2.y_conj_im - y0.y_conj_im) * 0.5f;
         // auto d = y1 - y0;
         auto d_y_re = y1.y_re - y0.y_re;
         auto d_y_im = y1.y_im - y0.y_im;
+        auto d_y_conj_re = y1.y_conj_re - y0.y_conj_re;
+        auto d_y_conj_im = y1.y_conj_im - y0.y_conj_im;
         // auto m0 = 3.0f * d - 2.0f * d0 - d1;
         auto m0_y_re = 3.0f * d_y_re - 2.0f * d0_y_re - d1_y_re;
         auto m0_y_im = 3.0f * d_y_im - 2.0f * d0_y_im - d1_y_im;
+        auto m0_y_conj_re = 3.0f * d_y_conj_re - 2.0f * d0_y_conj_re - d1_y_conj_re;
+        auto m0_y_conj_im = 3.0f * d_y_conj_im - 2.0f * d0_y_conj_im - d1_y_conj_im;
         // auto m1 = d0 - 2.0f * d + d1;
         auto m1_y_re = d0_y_re - 2.0f * d_y_re + d1_y_re;
         auto m1_y_im = d0_y_im - 2.0f * d_y_im + d1_y_im;
+        auto m1_y_conj_re = d0_y_conj_re - 2.0f * d_y_conj_re + d1_y_conj_re;
+        auto m1_y_conj_im = d0_y_conj_im - 2.0f * d_y_conj_im + d1_y_conj_im;
         // return y0 + t * (d0 + t * (m0 + t * m1));
         auto y0_y_re = y0.y_re + t * (d0_y_re + t * (m0_y_re + t * m1_y_re));
         auto y0_y_im = y0.y_im + t * (d0_y_im + t * (m0_y_im + t * m1_y_im));
-        return State{y0_y_re, y0_y_im};
+        auto y0_y_conj_re = y0.y_conj_re + t * (d0_y_conj_re + t * (m0_y_conj_re + t * m1_y_conj_re));
+        auto y0_y_conj_im = y0.y_conj_im + t * (d0_y_conj_im + t * (m0_y_conj_im + t * m1_y_conj_im));
+        return State{y0_y_re, y0_y_im, y0_y_conj_re, y0_y_conj_im};
     }
 
     void Push(State x) noexcept {
@@ -250,45 +264,71 @@ public:
         }
         mask_ = static_cast<int>(a - 1);
         delay_length_ = static_cast<int>(a);
-        buffer_.resize(a * 2);
+        buffer_.resize(a * 4);
     }
 
     void Reset() noexcept {
         wpos_ = 0;
-        std::fill(buffer_.begin(), buffer_.end(), simd::Float128{});
+        std::fill(buffer_.begin(), buffer_.end(), float{});
     }
 
-    simd::Float128 GetBeforePush(float delay_samples) const noexcept {
-        float frpos = static_cast<float>(wpos_ + delay_length_) - delay_samples;
-        auto t = frpos - std::floor(frpos);
-        auto rpos = static_cast<int>(frpos);
-        auto irpos = rpos & mask_;
-        auto rprev1 = (irpos - 1) & (mask_);
-        auto rnext1 = (irpos + 1) & (mask_);
-        auto rnext2 = (irpos + 2) & (mask_);
-
-        auto yn1 = buffer_[static_cast<size_t>(rprev1)];
-        auto y0 = buffer_[static_cast<size_t>(irpos)];
-        auto y1 = buffer_[static_cast<size_t>(rnext1)];
-        auto y2 = buffer_[static_cast<size_t>(rnext2)];
-
-        // auto d0 = (y1 - yn1) * 0.5f;
-        // auto d1 = (y2 - y0) * 0.5f;
-        // auto d = y1 - y0;
-        // auto m0 = 3.0f * d - 2.0f * d0 - d1;
-        // auto m1 = d0 - 2.0f * d + d1;
-        // return y0 + t * (d0 + t * (m0 + t * m1));
-
-        return y0 + t * (y1 - y0);
+    template<int kChannel>
+    float GetBeforePush(float delay_samples) const noexcept {
+        if constexpr (kChannel == 0) {
+            float frpos = static_cast<float>(wpos_ + delay_length_) - delay_samples;
+            auto t = frpos - std::floor(frpos);
+            auto rpos = static_cast<int>(frpos);
+            auto irpos = rpos & mask_;
+            auto rprev1 = (irpos - 1) & (mask_);
+            auto rnext1 = (irpos + 1) & (mask_);
+            auto rnext2 = (irpos + 2) & (mask_);
+    
+            auto yn1 = buffer_[static_cast<size_t>(rprev1)];
+            auto y0 = buffer_[static_cast<size_t>(irpos)];
+            auto y1 = buffer_[static_cast<size_t>(rnext1)];
+            auto y2 = buffer_[static_cast<size_t>(rnext2)];
+    
+            auto d0 = (y1 - yn1) * 0.5f;
+            auto d1 = (y2 - y0) * 0.5f;
+            auto d = y1 - y0;
+            auto m0 = 3.0f * d - 2.0f * d0 - d1;
+            auto m1 = d0 - 2.0f * d + d1;
+            return y0 + t * (d0 + t * (m0 + t * m1));
+        }
+        else {
+            float frpos = static_cast<float>(wpos_ + delay_length_) - delay_samples;
+            auto t = frpos - std::floor(frpos);
+            auto rpos = static_cast<int>(frpos);
+            auto irpos = rpos & mask_;
+            auto rprev1 = (irpos - 1) & (mask_);
+            auto rnext1 = (irpos + 1) & (mask_);
+            auto rnext2 = (irpos + 2) & (mask_);
+    
+            auto* ptr = buffer_.data() + delay_length_ * 2;
+            auto yn1 = ptr[static_cast<size_t>(rprev1)];
+            auto y0 = ptr[static_cast<size_t>(irpos)];
+            auto y1 = ptr[static_cast<size_t>(rnext1)];
+            auto y2 = ptr[static_cast<size_t>(rnext2)];
+    
+            auto d0 = (y1 - yn1) * 0.5f;
+            auto d1 = (y2 - y0) * 0.5f;
+            auto d = y1 - y0;
+            auto m0 = 3.0f * d - 2.0f * d0 - d1;
+            auto m1 = d0 - 2.0f * d + d1;
+            return y0 + t * (d0 + t * (m0 + t * m1));
+        }
     }
 
-    void Push(simd::Float128 x) noexcept {
+    void Push(float xleft, float xright) noexcept {
         wpos_ = (wpos_ + 1) & mask_;
-        buffer_[static_cast<size_t>(wpos_)] = x;
-        buffer_[static_cast<size_t>(wpos_ + delay_length_)] = x;
+        buffer_[static_cast<size_t>(wpos_)] = xleft;
+        buffer_[static_cast<size_t>(wpos_ + delay_length_)] = xleft;
+        int wpos2 = wpos_ + delay_length_ + delay_length_;
+        buffer_[static_cast<size_t>(wpos2)] = xright;
+        buffer_[static_cast<size_t>(wpos2 + delay_length_)] = xright;
     }
 private:
-    std::vector<simd::Float128> buffer_;
+    std::vector<float> buffer_;
     int delay_length_{};
     int wpos_{};
     int mask_{};
@@ -300,15 +340,11 @@ public:
     void Init(float fs, float max_ms) {
         delay_l_.Init(max_ms, fs);
         delay_r_.Init(max_ms, fs);
-        delay_l_conj_.Init(max_ms, fs);
-        delay_r_conj_.Init(max_ms, fs);
     }
 
     void Reset() noexcept {
         delay_l_.Reset();
         delay_r_.Reset();
-        delay_l_conj_.Reset();
-        delay_r_conj_.Reset();
     }
 
     std::array<float, 2> Tick(float left, float right, float delay_l, float delay_r) noexcept {
@@ -319,8 +355,8 @@ public:
         SimdComplex<T> y_l = SimdComplex<T>{s_l.y_re, s_l.y_im} * pole_ + left * residual_;
         SimdComplex<T> y_r = SimdComplex<T>{s_r.y_re, s_r.y_im} * pole_ + right * residual_;
 
-        delay_l_.Push(typename decltype(delay_l_)::State{y_l.re, y_l.im});
-        delay_r_.Push(typename decltype(delay_r_)::State{y_r.re, y_r.im});
+        delay_l_.Push(typename decltype(delay_l_)::State{y_l.re, y_l.im, T{}, T{}});
+        delay_r_.Push(typename decltype(delay_r_)::State{y_r.re, y_r.im, T{}, T{}});
         return {simd::ReduceAdd(y_l.re), simd::ReduceAdd(y_r.re)};
     }
 
@@ -331,24 +367,20 @@ public:
     ) noexcept {
         auto s_l = delay_l_.GetBeforePush(delay_l);
         auto s_r = delay_r_.GetBeforePush(delay_r);
-        auto s_l_conj = delay_l_conj_.GetBeforePush(delay_l);
-        auto s_r_conj = delay_r_conj_.GetBeforePush(delay_r);
 
         // auto y = s.y * pole + s.x * residual;
         SimdComplex<T> y_l = SimdComplex<T>{s_l.y_re, s_l.y_im} * pole_ + left * residual_;
         SimdComplex<T> y_r = SimdComplex<T>{s_r.y_re, s_r.y_im} * pole_ + right * residual_;
         y_l = zrotate_l * y_l;
         y_r = zrotate_r * y_r;
-        SimdComplex<T> y_l_conj = SimdComplex<T>{s_l_conj.y_re, s_l_conj.y_im} * pole_.Conj() + left * residual_.Conj();
-        SimdComplex<T> y_r_conj = SimdComplex<T>{s_r_conj.y_re, s_r_conj.y_im} * pole_.Conj() + right * residual_.Conj();
+        SimdComplex<T> y_l_conj = SimdComplex<T>{s_l.y_conj_re, s_l.y_conj_im} * pole_.Conj() + left * residual_.Conj();
+        SimdComplex<T> y_r_conj = SimdComplex<T>{s_r.y_conj_re, s_r.y_conj_im} * pole_.Conj() + right * residual_.Conj();
         y_l_conj = zrotate_l * y_l_conj;
         y_r_conj = zrotate_r * y_r_conj;
 
-        delay_l_.Push(typename decltype(delay_l_)::State{y_l.re, y_l.im});
-        delay_r_.Push(typename decltype(delay_r_)::State{y_r.re, y_r.im});
-        delay_l_conj_.Push(typename decltype(delay_l_conj_)::State{y_l_conj.re, y_l_conj.im});
-        delay_r_conj_.Push(typename decltype(delay_r_conj_)::State{y_r_conj.re, y_r_conj.im});
-        return {y_l.ReduceAdd() + y_l_conj.ReduceAdd(), y_r.ReduceAdd() + y_r_conj.ReduceAdd()};
+        delay_l_.Push(typename decltype(delay_l_)::State{y_l.re, y_l.im, y_l_conj.re, y_l_conj.im});
+        delay_r_.Push(typename decltype(delay_r_)::State{y_r.re, y_r.im, y_r_conj.re, y_r_conj.im});
+        return {(y_l + y_l_conj).ReduceAdd(), (y_r + y_r_conj).ReduceAdd()};
     }
 
     void Set(SimdComplex<T> residual, SimdComplex<T> pole) noexcept {
@@ -358,8 +390,6 @@ public:
 private:
     ParallelDelayLine<T> delay_l_;
     ParallelDelayLine<T> delay_r_;
-    ParallelDelayLine<T> delay_l_conj_;
-    ParallelDelayLine<T> delay_r_conj_;
     SimdComplex<T> pole_;
     SimdComplex<T> residual_;
 };
@@ -428,22 +458,22 @@ public:
             new (&iir_filters_.iir4) Iir4Filter[global::kIirMaxNumFilters / 4];
         }
 #endif
-// #ifdef VEC8_DISPATCH_INSTRUCTIONS
-//         if (simd_detector::is_supported(simd_detector::InstructionSet::VEC8_DISPATCH_INSTRUCTIONS)) {
-//             dispatch_info_.dispatch_func = &SteepFlanger::ProcessVec8;
-//             dispatch_info_.iir_dispatch_func = &SteepFlanger::ProcessVec8_Iir;
-//             dispatch_info_.lane_size = 8;
-//             new (&iir_filters_.iir8) Iir8Filter[global::kIirMaxNumFilters / 8];
-//         }
-// #endif
-// #ifdef VEC8_2_DISPATCH_INSTRUCTIONS
-//         if (simd_detector::is_supported(simd_detector::InstructionSet::VEC8_2_DISPATCH_INSTRUCTIONS)) {
-//             dispatch_info_.dispatch_func = &SteepFlanger::ProcessVec8_2;
-//             dispatch_info_.iir_dispatch_func = &SteepFlanger::ProcessVec8_2_Iir;
-//             dispatch_info_.lane_size = 8;
-//             new (&iir_filters_.iir8) Iir8Filter[global::kIirMaxNumFilters / 8];
-//         }
-// #endif
+#ifdef VEC8_DISPATCH_INSTRUCTIONS
+        if (simd_detector::is_supported(simd_detector::InstructionSet::VEC8_DISPATCH_INSTRUCTIONS)) {
+            dispatch_info_.dispatch_func = &SteepFlanger::ProcessVec8;
+            dispatch_info_.iir_dispatch_func = &SteepFlanger::ProcessVec8_Iir;
+            dispatch_info_.lane_size = 8;
+            new (&iir_filters_.iir8) Iir8Filter[global::kIirMaxNumFilters / 8];
+        }
+#endif
+#ifdef VEC8_2_DISPATCH_INSTRUCTIONS
+        if (simd_detector::is_supported(simd_detector::InstructionSet::VEC8_2_DISPATCH_INSTRUCTIONS)) {
+            dispatch_info_.dispatch_func = &SteepFlanger::ProcessVec8_2;
+            dispatch_info_.iir_dispatch_func = &SteepFlanger::ProcessVec8_2_Iir;
+            dispatch_info_.lane_size = 8;
+            new (&iir_filters_.iir8) Iir8Filter[global::kIirMaxNumFilters / 8];
+        }
+#endif
     }
 
     ~SteepFlanger() {
@@ -665,6 +695,13 @@ private:
     simd::Array256<float, kSIMDMaxCoeffLen> last_coeffs_{};
     float fir_gain_{1.0f};
     size_t coeff_len_{};
+    // feedback
+    float left_fb_{};
+    float right_fb_{};
+    pluginshared::dsp::OnePoleTPT<simd::Float128> damp_;
+    pluginshared::dsp::OnePoleTPT<simd::Float128> dc_;
+    float damp_lowpass_coeff_{1.0f};
+    float last_damp_lowpass_coeff_{1.0f};
 
     // ----------------------------------------
     // iir part
@@ -685,14 +722,6 @@ private:
     float phase_{};
     simd::Float128 last_exp_delay_samples_{};
     simd::Float128 last_delay_samples_{};
-
-    // feedback
-    float left_fb_{};
-    float right_fb_{};
-    pluginshared::dsp::OnePoleTPT<simd::Float128> damp_;
-    pluginshared::dsp::OnePoleTPT<simd::Float128> dc_;
-    float damp_lowpass_coeff_{1.0f};
-    float last_damp_lowpass_coeff_{1.0f};
 
     // barberpole
     pluginshared::dsp::StereoIIRHilbertDeeperCpx hilbert_complex_;
