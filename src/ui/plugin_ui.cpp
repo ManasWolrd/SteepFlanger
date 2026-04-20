@@ -5,272 +5,12 @@
 #include "qwqdsp/convert.hpp"
 #include "qwqdsp/oscillator/mcf_sine_osc.hpp"
 
-// ---------------------------------------- time prev ----------------------------------------
-
-void TimeView::UpdateGui() {
-    std::ranges::copy(p_.dsp_.GetUsingCoeffs(), coeff_buffer_.begin());
-
-    if (p_.dsp_param_.fir_coeff_len != 0) {
-        coeff_buffer_[p_.dsp_param_.fir_coeff_len] = coeff_buffer_[p_.dsp_param_.fir_coeff_len - 1];
-    }
-    repaint();
-}
-
-void TimeView::paint(juce::Graphics& g) {
-    g.fillAll(ui::green_bg);
-
-    // 获取图表bound
-    auto b = getLocalBounds();
-    b.removeFromTop(title_.getHeight());
-    b.reduce(4, 4);
-    auto bf = b.toFloat();
-    g.setColour(ui::black_bg);
-    g.fillRect(b);
-    
-    g.reduceClipRegion(b);
-    // 绘制实际使用的，如果是mouseUp后就是实际的
-    g.setColour(ui::line_fore);
-    float lasty = juce::jmap(coeff_buffer_[0], -1.0f, 1.0f, bf.getBottom(), bf.getY());
-    float lastx = bf.getX();
-    float const fcoeff_len = static_cast<float>(p_.dsp_param_.fir_coeff_len);
-    for (int x = 0; x < b.getWidth(); ++x) {
-        size_t const idx = static_cast<size_t>(static_cast<float>(x) * fcoeff_len / static_cast<float>(b.getWidth()));
-        float const val = coeff_buffer_[idx];
-        float const y = juce::jmap(val, -1.0f, 1.0f, bf.getBottom(), bf.getY());
-        float const xx = static_cast<float>(x) + bf.getX();
-        g.drawLine(lastx, lasty, xx, y);
-        lastx = xx;
-        lasty = y;
-    }
-
-    if (display_custom_.getToggleState()) {
-        // 绘制自定义波形
-        g.setColour(ui::active_bg);
-        lasty = juce::jmap(p_.dsp_param_.custom_coeffs_[0], -1.0f, 1.0f, bf.getBottom(), bf.getY());
-        lastx = bf.getX();
-        for (int x = 0; x < b.getWidth(); ++x) {
-            size_t const idx = static_cast<size_t>(static_cast<float>(x) * fcoeff_len / static_cast<float>(b.getWidth()));
-            float const val = p_.dsp_param_.custom_coeffs_[idx];
-            float const y = juce::jmap(val, -1.0f, 1.0f, bf.getBottom(), bf.getY());
-            float const xx = static_cast<float>(x) + bf.getX();
-            g.drawLine(lastx, lasty, xx, y);
-            lastx = xx;
-            lasty = y;
-        }
-    }
-}
-
-void TimeView::mouseDrag(const juce::MouseEvent& e) {
-    // 获取图表bound
-    auto b = getLocalBounds();
-    b.removeFromTop(title_.getHeight());
-    b.reduce(4, 4);
-
-    auto pos = e.getPosition();
-    pos.x = std::clamp(pos.x, b.getX(), b.getRight());
-    pos.y = std::clamp(pos.y, b.getY(), b.getBottom());
-
-    float const fcoeff_len = static_cast<float>(p_.dsp_param_.fir_coeff_len);
-    auto bf = b.toFloat();
-    size_t idx = static_cast<size_t>((static_cast<float>(pos.getX()) - bf.getX()) * fcoeff_len / static_cast<float>(bf.getWidth()));
-    idx = std::clamp<size_t>(idx, 0, p_.dsp_param_.fir_coeff_len - 1);
-
-    float val = juce::jmap(static_cast<float>(pos.y), bf.getY(), bf.getBottom(), 1.0f, -1.0f);
-    if (e.mods.isRightButtonDown()) {
-        val = 0;
-    }
-    
-    coeff_buffer_[idx] = val;
-    p_.dsp_param_.custom_coeffs_[idx] = val;
-
-    repaint();
-    if (auto* parent = getParentComponent(); parent != nullptr) {
-        static_cast<PluginUi*>(parent)->UpdateGuiFromTimeView();
-    }
-}
-
-void TimeView::RepaintTimeAndSpectralView() {
-    repaint();
-    if (auto* parent = getParentComponent(); parent != nullptr) {
-        static_cast<PluginUi*>(parent)->repaint();
-    }
-}
-
-void TimeView::mouseUp(const juce::MouseEvent& e) {
-    std::ignore = e;
-    SendCoeffs();
-}
-
-void TimeView::SendCoeffs() {
-    p_.dsp_param_.is_using_custom_ = true;
-    p_.dsp_param_.should_update_fir_ = true;
-}
-
-void TimeView::CopyCoeffesToCustom() {
-    std::ranges::copy(p_.dsp_.GetUsingCoeffs(), p_.dsp_param_.custom_coeffs_.begin());
-    std::ranges::copy(p_.dsp_param_.custom_coeffs_, coeff_buffer_.begin());
-    repaint();
-}
-
-void TimeView::ClearCustomCoeffs() {
-    std::ranges::fill(p_.dsp_param_.custom_coeffs_, float{});
-    repaint();
-}
-
-// ---------------------------------------- spectral view ----------------------------------------
-
-void SpectralView::paint(juce::Graphics& g) {
-    g.fillAll(ui::green_bg);
-
-    // 获取图表bound
-    auto b = getLocalBounds();
-    b.removeFromTop(title_.getHeight());
-    b.reduce(2, 8);
-    auto text_bound = b.removeFromLeft(36).toFloat();
-    auto bf = b.toFloat();
-    g.setColour(ui::black_bg);
-    g.fillRect(b);
-    
-    // 绘制频谱音量数字
-    float const fcoeff_len = static_cast<float>(time_.p_.dsp_param_.fir_coeff_len);
-    constexpr size_t kNumLines = 5;
-    float const centerx = text_bound.getCentreX();
-    g.setColour(juce::Colours::white);
-    g.setFont(juce::Font{juce::FontOptions{}.withHeight(12)});
-    for (size_t i = 0; i < kNumLines; ++i) {
-        float const centery = text_bound.getY() + static_cast<float>(i) * static_cast<float>(text_bound.getHeight()) / (kNumLines - 1.0f);
-        juce::Rectangle<float> text{0.0, 0.0, text_bound.getWidth(), 12.0f};
-        text = text.withCentre({centerx, centery});
-        float const val = max_db_ - static_cast<float>(i) * (max_db_ - min_db_) / (kNumLines - 1.0f);
-        g.drawText(juce::String{val, 1}, text, juce::Justification::right);
-    }
-
-    // 绘制超采样频谱
-    g.setColour(ui::line_fore);
-    float lasty = juce::jmap(gains_[0], bf.getBottom(), bf.getY());
-    float lastx = bf.getX();
-    for (int x = 0; x < b.getWidth(); ++x) {
-        size_t idx = static_cast<size_t>(static_cast<float>(static_cast<size_t>(x) * gains_.size()) / static_cast<float>(b.getWidth()));
-        idx = std::min(idx, gains_.size() - 1);
-        float const val = gains_[idx];
-        float const y = juce::jmap(val, bf.getBottom(), bf.getY());
-        float const xx = static_cast<float>(x) + bf.getX();
-        g.drawLine(lastx, lasty, xx, y);
-        lastx = xx;
-        lasty = y;
-    }
-
-    // 绘制自定义频谱
-    if (time_.display_custom_.getToggleState()) {
-        g.setColour(ui::active_bg);
-        lasty = juce::jmap(time_.p_.dsp_param_.custom_spectral_gains[0], bf.getBottom(), bf.getY());
-        lastx = bf.getX();
-        for (int x = 0; x < b.getWidth(); ++x) {
-            size_t const idx = static_cast<size_t>(static_cast<float>(static_cast<float>(x) * fcoeff_len) / static_cast<float>(b.getWidth()));
-            float const val = time_.p_.dsp_param_.custom_spectral_gains[idx];
-            float const y = juce::jmap(val, bf.getBottom(), bf.getY());
-            float const xx = static_cast<float>(x) + bf.getX();
-            g.drawLine(lastx, lasty, xx, y);
-            lastx = xx;
-            lasty = y;
-        }
-    }
-}
-
-void SpectralView::UpdateGui() {
-    std::array<float, kGainFFTSize> fft_buffer{};
-    std::copy_n(time_.coeff_buffer_.begin(), time_.p_.dsp_param_.fir_coeff_len, fft_buffer.begin());
-    fft_.FFTGainPhase(fft_buffer, gains_);
-
-    for (auto& x : gains_) {
-        x = qwqdsp::convert::Gain2Db<-100.0f>(x);
-    }
-
-    auto[pmin, pmax] = std::minmax_element(gains_.begin(), gains_.end());
-    float const min = *pmin;
-    float const max = *pmax;
-    float const scale = 1.0f / (max - min + 1e-6f);
-    for (auto& x : gains_) {
-        x = (x - min) * scale;
-    }
-    max_db_ = max;
-    min_db_ = min;
-
-    repaint();
-}
-
-void SpectralView::mouseDrag(const juce::MouseEvent& e) {
-    // 获取图表bound
-    auto b = getLocalBounds();
-    b.removeFromTop(title_.getHeight());
-    b.reduce(2, 8);
-    b.removeFromLeft(36).toFloat();
-    auto bf = b.toFloat();
-
-    auto pos = e.getPosition();
-    pos.x = std::clamp(pos.x, b.getX(), b.getRight());
-    pos.y = std::clamp(pos.y, b.getY(), b.getBottom());
-
-    size_t const coeff_len = time_.p_.dsp_param_.fir_coeff_len;
-    float const fcoeff_len = static_cast<float>(coeff_len);
-    size_t idx = static_cast<size_t>((static_cast<float>(pos.getX()) - bf.getX()) * fcoeff_len / bf.getWidth());
-    idx = std::clamp<size_t>(idx, 0, coeff_len - 1);
-
-    float val = juce::jmap(static_cast<float>(pos.y), bf.getY(), bf.getBottom(), 1.0f, 0.0f);
-    if (e.mods.isRightButtonDown()) {
-        val = 0;
-    }
-    
-    time_.p_.dsp_param_.custom_spectral_gains[idx] = val;
-
-    // 加法合成
-    std::array<qwqdsp_oscillator::MCFSineOsc, global::kMaxCoeffLen> oscs;
-    std::array<float, global::kMaxCoeffLen> true_gains;
-    for (size_t i = 0; i < coeff_len; ++i) {
-        oscs[i].Reset(static_cast<float>(i) * std::numbers::pi_v<float> / fcoeff_len, 0.0f);
-        float const db = std::lerp(-101.0f, 0.0f, time_.p_.dsp_param_.custom_spectral_gains[i]);
-        if (db < -100.0f) {
-            true_gains[i] = 0;
-        }
-        else {
-            true_gains[i] = qwqdsp::convert::Db2Gain(db);
-        }
-    }
-    
-    for (size_t tidx = 0; tidx < coeff_len; ++tidx) {
-        float sum{};
-        for (size_t fidx = 0; fidx < coeff_len; ++fidx) {
-            sum += true_gains[fidx] * oscs[fidx].Tick();
-        }
-        time_.coeff_buffer_[tidx] = sum;
-        time_.p_.dsp_param_.custom_coeffs_[tidx] = sum;
-    }
-
-    UpdateGui();
-    time_.repaint();
-}
-
-void SpectralView::mouseUp(const juce::MouseEvent& e) {
-    std::ignore = e;
-    time_.SendCoeffs();
-}
-
-// ---------------------------------------- editor ----------------------------------------
-
-PluginUi::PluginUi (SteepFlangerAudioProcessor& p)
+PluginUi::PluginUi(SteepFlangerAudioProcessor& p)
     : p_(p)
     , preset_panel_(*p.preset_manager_)
     , timeview_(p)
-    , spectralview_(timeview_)
-{
+    , spectralview_(timeview_) {
     auto& apvts = *p.value_tree_;
-
-    addChildComponent(unsupported_arch_);
-    unsupported_arch_.setVisible(!p.dsp_.GetDispatchInfo().IsValid());
-    if (unsupported_arch_.isVisible()) {
-        setSize(400, 300);
-        return;
-    }
 
     addAndMakeVisible(preset_panel_);
 
@@ -285,8 +25,8 @@ PluginUi::PluginUi (SteepFlangerAudioProcessor& p)
     addAndMakeVisible(phase_);
     lfo_reset_phase_.setButtonText("reset phase");
     lfo_reset_phase_.onClick = [this] {
-        juce::ScopedLock _{p_.getCallbackLock()};
-        p_.dsp_.SetLFOPhase(0);
+        // juce::ScopedLock _{p_.getCallbackLock()};
+        // p_.dsp_.SetLFOPhase(0);
     };
     addAndMakeVisible(lfo_reset_phase_);
     drywet_.BindParam(p.param_drywet_);
@@ -300,9 +40,7 @@ PluginUi::PluginUi (SteepFlangerAudioProcessor& p)
     addAndMakeVisible(side_lobe_);
     minum_phase_.BindParam(apvts, "minum_phase");
     addAndMakeVisible(minum_phase_);
-    iir_mode_.onClick = [this] {
-        SetIirMode(iir_mode_.getToggleState());
-    };
+    iir_mode_.onClick = [this] { SetIirMode(iir_mode_.getToggleState()); };
     iir_mode_.BindParam(p.param_iir_mode_);
     addAndMakeVisible(iir_mode_);
     highpass_.BindParam(apvts, "highpass");
@@ -325,7 +63,7 @@ PluginUi::PluginUi (SteepFlangerAudioProcessor& p)
     addAndMakeVisible(fb_value_);
     panic_.setButtonText("panic");
     panic_.onClick = [&p] {
-        p.dsp_.Reset();
+        // p.dsp_.Reset();
     };
     addAndMakeVisible(panic_);
     fb_damp_.BindParam(apvts, "fb_damp");
@@ -341,8 +79,8 @@ PluginUi::PluginUi (SteepFlangerAudioProcessor& p)
     addAndMakeVisible(barber_enable_);
     barber_reset_phase_.setButtonText("reset phase");
     barber_reset_phase_.onClick = [this] {
-        juce::ScopedLock _{p_.getCallbackLock()};
-        p_.dsp_.SetBarberLFOPhase(0);
+        // juce::ScopedLock _{p_.getCallbackLock()};
+        // p_.dsp_.SetBarberLFOPhase(0);
     };
     addAndMakeVisible(barber_reset_phase_);
     barber_stereo_.BindParam(p.param_barber_stereo_);
@@ -352,19 +90,16 @@ PluginUi::PluginUi (SteepFlangerAudioProcessor& p)
     addAndMakeVisible(spectralview_);
 
     setSize(600, 264 + 30);
-    custom_.setToggleState(p.dsp_param_.is_using_custom_, juce::sendNotificationSync);
+    custom_.setToggleState(p.dsp_state_.param.fir_source != dsp::DspParam::FirSource::kWindowSinc, juce::sendNotificationSync);
     iir_mode_.onClick();
     startTimerHz(30);
 }
 
-PluginUi::~PluginUi() {
-}
+PluginUi::~PluginUi() {}
 
 //==============================================================================
-void PluginUi::paint (juce::Graphics& g) {
-    if (unsupported_arch_.isVisible()) return;
-
-    g.fillAll(juce::Colour{22,27,32});
+void PluginUi::paint(juce::Graphics& g) {
+    g.fillAll(juce::Colour{22, 27, 32});
 
     auto b = getLocalBounds();
     g.setColour(ui::green_bg);
@@ -378,9 +113,6 @@ void PluginUi::paint (juce::Graphics& g) {
 
 void PluginUi::resized() {
     auto b = getLocalBounds();
-    unsupported_arch_.setBounds(b);
-    if (unsupported_arch_.isVisible()) return;
-
     preset_panel_.setBounds(b.removeFromTop(30));
     b.removeFromTop(2);
     {
@@ -391,7 +123,8 @@ void PluginUi::resized() {
             auto lfo_block_top = lfo_block.removeFromTop(25);
             lfo_reset_phase_.setBounds(lfo_block_top.removeFromRight(100).reduced(1, 1));
             lfo_title_.setBounds(lfo_block_top);
-            delay_.setBounds(lfo_block.removeFromLeft(64));;
+            delay_.setBounds(lfo_block.removeFromLeft(64));
+            ;
             depth_.setBounds(lfo_block.removeFromLeft(64));
             speed_.setBounds(lfo_block.removeFromLeft(64));
             phase_.setBounds(lfo_block.removeFromLeft(64));
@@ -408,9 +141,12 @@ void PluginUi::resized() {
                 custom_.setBounds(fir_title.removeFromRight(60).reduced(2, 0));
                 iir_mode_.setBounds(fir_title);
             }
-            cutoff_.setBounds(fir_block.removeFromLeft(80));;
-            coeff_len_.setBounds(fir_block.removeFromLeft(80));;
-            side_lobe_.setBounds(fir_block.removeFromLeft(80));;
+            cutoff_.setBounds(fir_block.removeFromLeft(80));
+            ;
+            coeff_len_.setBounds(fir_block.removeFromLeft(80));
+            ;
+            side_lobe_.setBounds(fir_block.removeFromLeft(80));
+            ;
         }
     }
     b.removeFromTop(8);
@@ -422,7 +158,7 @@ void PluginUi::resized() {
             feedback_title_.setBounds(feedback_block.removeFromTop(25));
             {
                 auto button_block = feedback_block.removeFromLeft(80);
-                panic_.setBounds(button_block.withSizeKeepingCentre(button_block.getWidth(),  30));
+                panic_.setBounds(button_block.withSizeKeepingCentre(button_block.getWidth(), 30));
             }
             fb_value_.setBounds(feedback_block.removeFromLeft(80));
             fb_damp_.setBounds(feedback_block.removeFromLeft(80));
@@ -453,7 +189,7 @@ void PluginUi::resized() {
 }
 
 void PluginUi::timerCallback() {
-    if (p_.dsp_.have_new_coeff_.exchange(false)) {
+    if (p_.dsp_state_.have_new_coeff_.exchange(false)) {
         UpdateGui();
     }
 }

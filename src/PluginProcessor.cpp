@@ -12,6 +12,8 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
                      #endif
                        )
 {
+    dsp_processor_ = dsp::GetProcessorDsp();
+    
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
     // lfo
@@ -61,9 +63,9 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         );
         param_fir_cutoff_ = p.get();
         param_listener_.Add(p, [this](float) {
-            dsp_param_.is_using_custom_ = false;
-            dsp_param_.should_update_fir_ = true;
-            dsp_param_.should_update_iir_ = true;
+            dsp_state_.param.fir_source = dsp::DspParam::kWindowSinc;
+            dsp_state_.param.should_update_fir_ = true;
+            dsp_state_.param.should_update_iir_ = true;
         });
         layout.add(std::move(p));
     }
@@ -76,7 +78,7 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         );
         param_fir_coeff_len_ = p.get();
         param_listener_.Add(p, [this](float) {
-            dsp_param_.should_update_fir_ = true;
+            dsp_state_.param.should_update_fir_ = true;
         });
         layout.add(std::move(p));
     }
@@ -89,8 +91,8 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         );
         param_fir_side_lobe_ = p.get();
         param_listener_.Add(p, [this](float) {
-            dsp_param_.is_using_custom_ = false;
-            dsp_param_.should_update_fir_ = true;
+            dsp_state_.param.fir_source = dsp::DspParam::kWindowSinc;
+            dsp_state_.param.should_update_fir_ = true;
         });
         layout.add(std::move(p));
     }
@@ -102,7 +104,7 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         );
         param_fir_min_phase_ = p.get();
         param_listener_.Add(p, [this](bool) {
-            dsp_param_.should_update_fir_ = true;
+            dsp_state_.param.should_update_fir_ = true;
         });
         layout.add(std::move(p));
     }
@@ -114,9 +116,9 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         );
         param_fir_highpass_ = p.get();
         param_listener_.Add(p, [this](bool) {
-            dsp_param_.is_using_custom_ = false;
-            dsp_param_.should_update_fir_ = true;
-            dsp_param_.should_update_iir_ = true;
+            dsp_state_.param.fir_source = dsp::DspParam::kWindowSinc;
+            dsp_state_.param.should_update_fir_ = true;
+            dsp_state_.param.should_update_iir_ = true;
         });
         layout.add(std::move(p));
     }
@@ -207,7 +209,7 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         );
         param_iir_filter_num_ = p.get();
         param_listener_.Add(p, [this](float) {
-            dsp_param_.should_update_iir_ = true;
+            dsp_state_.param.should_update_iir_ = true;
         });
         layout.add(std::move(p));
     }
@@ -220,7 +222,7 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         );
         param_iir_ripple_ = p.get();
         param_listener_.Add(p, [this](float) {
-            dsp_param_.should_update_iir_ = true;
+            dsp_state_.param.should_update_iir_ = true;
         });
         layout.add(std::move(p));
     }
@@ -305,11 +307,10 @@ void SteepFlangerAudioProcessor::changeProgramName (int index, const juce::Strin
 //==============================================================================
 void SteepFlangerAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    std::ignore = samplesPerBlock;
+    if (!dsp_processor_.IsValid()) return;
     
-    dsp_.Init(static_cast<float>(sampleRate), global::kMaxDelayMs + global::kModuDelayMs + 0.1f);
-    dsp_.Reset();
-    dsp_param_.should_update_fir_ = true;
+    dsp_processor_.init(dsp_state_, static_cast<float>(sampleRate));
+    dsp_processor_.reset(dsp_state_);
 
     param_listener_.MarkAll();
 }
@@ -353,38 +354,39 @@ void SteepFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     auto lfo_info = delay_lfo_state_.SyncBpm2(getPlayHead());
     if (lfo_info.sync_lfo) {
-        dsp_.SetLFOPhase(lfo_info.lfo_phase);
+        // dsp_processor_.SetLFOPhase(lfo_info.lfo_phase);
     }
     auto barber_lfo_info = barber_lfo_state_.SyncBpm2(getPlayHead());
     if (barber_lfo_info.sync_lfo) {
-        dsp_.SetBarberLFOPhase(barber_lfo_info.lfo_phase);
+        // dsp_processor_.SetBarberLFOPhase(barber_lfo_info.lfo_phase);
     }
 
-    dsp_param_.delay_ms = param_delay_ms_->get();
-    dsp_param_.depth_ms = param_delay_depth_ms_->get();
-    dsp_param_.lfo_freq = lfo_info.lfo_freq;
-    dsp_param_.lfo_phase = param_lfo_phase_->get();
-    dsp_param_.fir_cutoff = param_fir_cutoff_->get();
-    dsp_param_.fir_coeff_len = static_cast<size_t>(param_fir_coeff_len_->get());
-    dsp_param_.fir_side_lobe = param_fir_side_lobe_->get();
-    dsp_param_.fir_min_phase = param_fir_min_phase_->get();
-    dsp_param_.fir_highpass = param_fir_highpass_->get();
-    dsp_param_.feedback = param_feedback_->get();
-    dsp_param_.damp_pitch = param_damp_pitch_->get();
-    dsp_param_.barber_phase = param_barber_phase_->get();
-    dsp_param_.barber_speed = barber_lfo_info.lfo_freq;
-    dsp_param_.barber_enable = param_barber_enable_->get();
-    dsp_param_.barber_stereo_phase = param_barber_stereo_->get() * std::numbers::pi_v<float> / 2;
-    dsp_param_.drywet = param_drywet_->get();
-    dsp_param_.iir_num_filters = static_cast<size_t>(param_iir_filter_num_->get());
-    dsp_param_.ripple = param_iir_ripple_->get();
-    dsp_param_.iir_mode = param_iir_mode_->get();
+    dsp_state_.param.delay_ms = param_delay_ms_->get();
+    dsp_state_.param.depth_ms = param_delay_depth_ms_->get();
+    dsp_state_.param.lfo_freq = lfo_info.lfo_freq;
+    dsp_state_.param.lfo_phase = param_lfo_phase_->get();
+    dsp_state_.param.fir_cutoff = param_fir_cutoff_->get();
+    dsp_state_.param.fir_coeff_len = static_cast<size_t>(param_fir_coeff_len_->get());
+    dsp_state_.param.fir_side_lobe = param_fir_side_lobe_->get();
+    dsp_state_.param.fir_min_phase = param_fir_min_phase_->get();
+    dsp_state_.param.fir_highpass = param_fir_highpass_->get();
+    dsp_state_.param.feedback = param_feedback_->get();
+    dsp_state_.param.damp_pitch = param_damp_pitch_->get();
+    dsp_state_.param.barber_phase = param_barber_phase_->get();
+    dsp_state_.param.barber_speed = barber_lfo_info.lfo_freq;
+    dsp_state_.param.barber_enable = param_barber_enable_->get();
+    dsp_state_.param.barber_stereo_phase = param_barber_stereo_->get() * std::numbers::pi_v<float> / 2;
+    dsp_state_.param.drywet = param_drywet_->get();
+    dsp_state_.param.iir_num_filters = static_cast<size_t>(param_iir_filter_num_->get());
+    dsp_state_.param.ripple = param_iir_ripple_->get();
+    dsp_state_.param.iir_mode = param_iir_mode_->get();
+    // dsp_processor_.update(dsp_state_, dsp_state_.param);
 
-    size_t const len = static_cast<size_t>(buffer.getNumSamples());
+    int num_samples = buffer.getNumSamples();
     auto* left_ptr = buffer.getWritePointer(0);
     auto* right_ptr = buffer.getWritePointer(1);
 
-    dsp_.Process(left_ptr, right_ptr, len, dsp_param_);
+    dsp_processor_.process(dsp_state_, left_ptr, right_ptr, num_samples);
 }
 
 //==============================================================================
@@ -402,19 +404,20 @@ juce::AudioProcessorEditor* SteepFlangerAudioProcessor::createEditor()
 void SteepFlangerAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     suspendProcessing(true);
+    auto& dsp_param_ = dsp_state_.param;
 
     juce::ValueTree data{"DATA"};
     for (size_t i = 0; i < global::kMaxCoeffLen; ++i) {
         data.appendChild({
             "ITEM",
             {
-                {"TIME", dsp_param_.custom_coeffs_[i]},
-                {"SPECTRAL", dsp_param_.custom_spectral_gains[i]},
+                {"TIME", dsp_state_.param.custom_coeffs_[i]},
+                {"SPECTRAL", dsp_state_.param.custom_spectral_gains[i]},
             }
         }, nullptr);
     }
     juce::ValueTree custom_coeffs{"CUSTOM_COEFFS"};
-    custom_coeffs.setProperty("USING", dsp_param_.is_using_custom_.load(), nullptr);
+    custom_coeffs.setProperty("FIR_SOURCE", static_cast<int>(dsp_state_.param.fir_source), nullptr);
     custom_coeffs.appendChild(data, nullptr);
 
     juce::ValueTree plugin_state{"PLUGIN_STATE"};
@@ -431,6 +434,7 @@ void SteepFlangerAudioProcessor::getStateInformation (juce::MemoryBlock& destDat
 void SteepFlangerAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     suspendProcessing(true);
+    auto& dsp_param_ = dsp_state_.param;
 
     auto xml = *getXmlFromBinary(data, sizeInBytes);
     auto plugin_state = juce::ValueTree::fromXml(xml);
@@ -443,17 +447,18 @@ void SteepFlangerAudioProcessor::setStateInformation (const void* data, int size
 
         auto custom_coeffs = plugin_state.getChildWithName("CUSTOM_COEFFS");
         if (custom_coeffs.isValid()) {
-            dsp_param_.is_using_custom_ = custom_coeffs.getProperty("USING", false);
+            int tmp = custom_coeffs.getProperty("FIR_SOURCE", static_cast<int>(dsp::DspParam::FirSource::kWindowSinc));
+            dsp_state_.param.fir_source = static_cast<dsp::DspParam::FirSource>(tmp);
             auto data_sections = custom_coeffs.getChildWithName("DATA");
             if (data_sections.isValid()) {
-                std::fill_n(dsp_param_.custom_coeffs_.begin(), global::kMaxCoeffLen, 0.0f);
-                std::fill_n(dsp_param_.custom_spectral_gains.begin(), global::kMaxCoeffLen, 0.0f);
+                std::fill_n(dsp_state_.param.custom_coeffs_.begin(), global::kMaxCoeffLen, 0.0f);
+                std::fill_n(dsp_state_.param.custom_spectral_gains.begin(), global::kMaxCoeffLen, 0.0f);
                 for (size_t i = 0; auto item : data_sections) {
-                    dsp_param_.custom_coeffs_[i] = static_cast<float>(item.getProperty("TIME", 0.0));
-                    dsp_param_.custom_spectral_gains[i] = static_cast<float>(item.getProperty("SPECTRAL", 0.0));
+                    dsp_state_.param.custom_coeffs_[i] = static_cast<float>(item.getProperty("TIME", 0.0));
+                    dsp_state_.param.custom_spectral_gains[i] = static_cast<float>(item.getProperty("SPECTRAL", 0.0));
                     ++i;
                 }
-                dsp_param_.should_update_fir_ = true;
+                dsp_state_.param.should_update_fir_ = true;
             }
         }
     }

@@ -66,23 +66,45 @@ juce_add_plugin(${PROJECT_NAME}
 )
 
 # 添加源文件
-include(src/pluginshared/cmake/simd.cmake)
-simd_collect_file(
-    DSP_SOURCES
-    SIMD_COMPLIER_DEFINES
-    src/dsp/vec4.cpp
-    src/dsp/vec4_2.cpp
-    src/dsp/vec8.cpp
-    src/dsp/vec8_2.cpp
-)
 target_sources(${PROJECT_NAME}
 PRIVATE
+    # src/dsp/dsp_lane4_template.cpp
+    src/dsp/dsp_dispatch.cpp
+    src/ui/plugin_ui.cpp
+    src/ui/spectral_view.cpp
+    src/ui/time_view.cpp
     src/PluginEditor.cpp
     src/PluginProcessor.cpp
-    src/ui/plugin_ui.cpp
-    ${DSP_SOURCES}
 )
-target_compile_definitions(${PROJECT_NAME} PUBLIC ${SIMD_COMPLIER_DEFINES})
+
+### simd dispatch
+if(APPLE)
+    target_sources(${PROJECT_NAME}
+    PRIVATE
+        src/dsp/dsp_neon.cpp
+        src/dsp/dsp_avx2.cpp
+        src/dsp/dsp_avx.cpp
+        src/dsp/dsp_sse4.cpp
+        src/dsp/dsp_sse2.cpp
+    )
+    set_source_files_properties("src/dsp/dsp_neon.cpp" PROPERTIES COMPILE_FLAGS "-arch arm64")
+    set_source_files_properties("src/dsp/dsp_sse2.cpp" PROPERTIES COMPILE_FLAGS "-arch x86_64 -msse2")
+    set_source_files_properties("src/dsp/dsp_sse4.cpp" PROPERTIES COMPILE_FLAGS "-arch x86_64 -msse4.1")
+    set_source_files_properties("src/dsp/dsp_avx.cpp" PROPERTIES COMPILE_FLAGS "-arch x86_64 -mavx")
+    set_source_files_properties("src/dsp/dsp_avx2.cpp" PROPERTIES COMPILE_FLAGS "-arch x86_64 -mavx2")
+else()
+    target_sources(${PROJECT_NAME}
+    PRIVATE
+        src/dsp/dsp_avx2.cpp
+        src/dsp/dsp_avx.cpp
+        src/dsp/dsp_sse4.cpp
+        src/dsp/dsp_sse2.cpp
+    )
+    set_source_files_properties("src/dsp/dsp_sse2.cpp" PROPERTIES COMPILE_FLAGS "-msse2")
+    set_source_files_properties("src/dsp/dsp_sse4.cpp" PROPERTIES COMPILE_FLAGS "-msse4.1")
+    set_source_files_properties("src/dsp/dsp_avx.cpp" PROPERTIES COMPILE_FLAGS "-mavx")
+    set_source_files_properties("src/dsp/dsp_avx2.cpp" PROPERTIES COMPILE_FLAGS "-mavx2")
+endif()
 
 # 头文件目录
 target_include_directories(${PROJECT_NAME}
