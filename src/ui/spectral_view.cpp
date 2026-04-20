@@ -3,31 +3,36 @@
 #include "time_view.hpp"
 #include "../PluginProcessor.h"
 #include "qwqdsp/convert.hpp"
+#include <cmath>
 
 void SpectralView::paint(juce::Graphics& g) {
     g.fillAll(ui::green_bg);
 
     // 获取图表bound
     auto b = getLocalBounds();
-    b.removeFromTop(title_.getHeight());
     b.reduce(2, 8);
-    auto text_bound = b.removeFromLeft(36).toFloat();
+    auto text_bound = b.removeFromLeft(24).toFloat();
     auto bf = b.toFloat();
     g.setColour(ui::black_bg);
     g.fillRect(b);
     
     // 绘制频谱音量数字
     float const fcoeff_len = static_cast<float>(time_.p_.dsp_state_.param.fir_coeff_len);
-    constexpr size_t kNumLines = 6;
+    constexpr int kNumLines = static_cast<int>((kDbCeil - kDbFloor) / kDbStep) + 1;
     float const centerx = text_bound.getCentreX();
     g.setColour(juce::Colours::white);
     g.setFont(juce::Font{juce::FontOptions{}.withHeight(12)});
-    for (size_t i = 0; i < kNumLines; ++i) {
+    for (int i = 0; i < kNumLines; ++i) {
         float const centery = text_bound.getY() + static_cast<float>(i) * static_cast<float>(text_bound.getHeight()) / (kNumLines - 1.0f);
         juce::Rectangle<float> text{0.0, 0.0, text_bound.getWidth(), 12.0f};
         text = text.withCentre({centerx, centery});
-        int const val = -static_cast<int>(i) * 20;
-        g.drawText(juce::String{val}, text, juce::Justification::right);
+        float const val = kDbCeil - kDbStep * static_cast<float>(i);
+        g.drawText(juce::String{static_cast<int>(val)}, text, juce::Justification::right);
+    }
+
+    if (iir_) {
+        DrawIir(g);
+        return;
     }
 
     // 绘制超采样频谱
@@ -46,7 +51,7 @@ void SpectralView::paint(juce::Graphics& g) {
     }
 
     // 绘制自定义频谱
-    if (time_.display_custom_.getToggleState()) {
+    if (time_.display_waveform_) {
         g.setColour(ui::active_bg);
         lasty = juce::jmap(time_.p_.dsp_state_.param.custom_spectral_gains[0], bf.getBottom(), bf.getY());
         lastx = bf.getX();
@@ -68,11 +73,11 @@ void SpectralView::UpdateGui() {
     fft_.FFTGainPhase(fft_buffer, gains_);
 
     for (auto& x : gains_) {
-        x = qwqdsp::convert::Gain2Db<-100.0f>(x);
+        x = qwqdsp::convert::Gain2Db<kDbFloor>(x);
     }
 
     for (auto& x : gains_) {
-        x = std::clamp((x + 100.0f) / 100.0f, 0.0f, 1.0f);
+        x = std::clamp((x - kDbFloor) / (kDbCeil - kDbFloor), 0.0f, 1.0f);
     }
 
     repaint();
@@ -81,9 +86,8 @@ void SpectralView::UpdateGui() {
 void SpectralView::mouseDrag(const juce::MouseEvent& e) {
     // 获取图表bound
     auto b = getLocalBounds();
-    b.removeFromTop(title_.getHeight());
     b.reduce(2, 8);
-    b.removeFromLeft(36).toFloat();
+    b.removeFromLeft(24).toFloat();
     auto bf = b.toFloat();
 
     auto pos = e.getPosition();
@@ -132,4 +136,65 @@ void SpectralView::mouseDrag(const juce::MouseEvent& e) {
 void SpectralView::mouseUp(const juce::MouseEvent& e) {
     std::ignore = e;
     time_.SendCoeffs();
+}
+
+void SpectralView::DrawIir(juce::Graphics& g) {
+    int nfilter_ = p_.dsp_state_.param.iir_num_filters;
+    float w_ = p_.dsp_state_.param.fir_cutoff;
+    float ripple_ = p_.dsp_state_.param.ripple;
+    bool highpass = p_.dsp_state_.param.fir_highpass;
+
+    if (nfilter_ <= 0) {
+        return;
+    }
+
+    auto b = getLocalBounds();
+    b.reduce(2, 8);
+    b.removeFromLeft(24);
+    auto bf = b.toFloat();
+    if (bf.getWidth() <= 1.0f || bf.getHeight() <= 1.0f) {
+        return;
+    }
+
+    constexpr float kWMax = std::numbers::pi_v<float> - 0.1f;
+    constexpr float kMinGain = 1.0e-8f;
+    float cutoff_w = w_;
+    if (highpass) {
+        cutoff_w = std::numbers::pi_v<float> - cutoff_w;
+    }
+    float const wc = std::tan(std::clamp(cutoff_w, 1.0e-4f, std::numbers::pi_v<float> - 1.0e-4f) * 0.5f);
+    float const ripple_db = std::max(ripple_, 0.001f);
+    float const epsilon = std::sqrt(std::pow(10.0f, ripple_db * 0.1f) - 1.0f);
+    float const g_mul = std::pow(10.0f, ripple_db * 0.05f);
+    int const order = std::max(1, nfilter_ * 2);
+
+    g.setColour(ui::line_fore);
+
+    float lastx = bf.getX();
+    float lasty = bf.getBottom();
+    for (int px = 0; px < b.getWidth(); ++px) {
+        float const t = static_cast<float>(px) / std::max(1.0f, static_cast<float>(b.getWidth() - 1));
+        float const w = t * kWMax;
+        float const tw = std::max(std::tan(w * 0.5f), 1.0e-8f);
+        float const x = highpass ? (wc / tw) : (tw / wc);
+
+        float tn{};
+        if (x <= 1.0f) {
+            tn = std::cos(static_cast<float>(order) * std::acos(std::clamp(x, -1.0f, 1.0f)));
+        } else {
+            tn = std::cosh(static_cast<float>(order) * std::acosh(x));
+        }
+
+        float const gain = g_mul / std::sqrt(1.0f + epsilon * epsilon * tn * tn);
+        float const db = juce::jlimit(kDbFloor, kDbCeil, 20.0f * std::log10(std::max(gain, kMinGain)));
+        float const norm = std::clamp((db - kDbFloor) / (kDbCeil - kDbFloor), 0.0f, 1.0f);
+        float const yy = juce::jmap(norm, bf.getBottom(), bf.getY());
+        float const xx = bf.getX() + static_cast<float>(px);
+
+        if (px > 0) {
+            g.drawLine(lastx, lasty, xx, yy, 1.5f);
+        }
+        lastx = xx;
+        lasty = yy;
+    }
 }

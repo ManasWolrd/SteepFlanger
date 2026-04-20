@@ -51,8 +51,6 @@ struct DspStateN {
     qwqdsp_oscillator::VicSineOsc barber_oscillator_;
     size_t barber_osc_keep_amp_counter_{};
     size_t barber_osc_keep_amp_need_{};
-
-    audiofft::AudioFFTcpx complex_fft_;
 };
 
 struct DspParam {
@@ -111,6 +109,7 @@ struct DspState {
     
     DspParam param;
     std::atomic<bool> have_new_coeff_{}; // dsp_processor just update it's fir coeff
+    audiofft::AudioFFTcpx complex_fft_;
 };
 
 struct DspProcessor {

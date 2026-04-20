@@ -47,7 +47,7 @@ static void UpdateFirCoeff(dsp::DspState& state) noexcept {
     std::array<float, num_bins> fft_im{};
     std::copy(kernel.begin(), kernel.end(), pad);
 
-    self.complex_fft_.fft(pad, pad_im, fft_re.data(), fft_im.data());
+    state.complex_fft_.fft(pad, pad_im, fft_re.data(), fft_im.data());
     for (size_t i = 0; i < num_bins; ++i) {
         float g = std::sqrt(fft_re[i] * fft_re[i] + fft_im[i] * fft_im[i]);
         gains[i] = g;
@@ -61,7 +61,7 @@ static void UpdateFirCoeff(dsp::DspState& state) noexcept {
         }
 
         float phases[num_bins]{};
-        self.complex_fft_.ifft(pad, pad_im, log_gains, phases);
+        state.complex_fft_.ifft(pad, pad_im, log_gains, phases);
         pad[0] = 0;
         pad[num_bins / 2] = 0;
         for (size_t i = num_bins / 2 + 1; i < num_bins; ++i) {
@@ -69,12 +69,12 @@ static void UpdateFirCoeff(dsp::DspState& state) noexcept {
         }
 
         std::fill_n(pad_im, num_bins, 0.0f);
-        self.complex_fft_.fft(pad, pad_im, log_gains, phases);
+        state.complex_fft_.fft(pad, pad_im, log_gains, phases);
         for (size_t i = 0; i < num_bins; ++i) {
             fft_re[i] = gains[i] * std::cos(phases[i]);
             fft_im[i] = gains[i] * std::sin(phases[i]);
         }
-        self.complex_fft_.ifft(pad, pad_im, fft_re.data(), fft_im.data());
+        state.complex_fft_.ifft(pad, pad_im, fft_re.data(), fft_im.data());
 
         for (size_t i = 0; i < kernel.size(); ++i) {
             kernel[i] = pad[i];
@@ -307,7 +307,7 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
 
         // fir polyphase filtering
         if (!param.barber_enable) {
-            for (size_t j = 0; j < num_process; ++j) {
+            for (int j = 0; j < num_process; ++j) {
                 curr_num_notch += delta_num_notch;
                 curr_damp_coeff += delta_damp_coeff;
 
@@ -315,7 +315,7 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
                     last_coeffs_ptr[i] += delta_coeffs[i];
                 }
 
-                float left_sum = 0;
+                simd::Float128 left_sum{};
                 float const left_num_notch = curr_num_notch[0];
                 simd::Float128 current_delay;
                 current_delay[0] = 0;
@@ -327,15 +327,10 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
                 for (size_t i = 0; i < coeff_len_div_4; ++i) {
                     auto taps_out = self.delay_left_.GetAfterPush(current_delay);
                     current_delay += delay_inc;
-
-                    taps_out *= last_coeffs_ptr[i];
-                    left_sum += taps_out[0];
-                    left_sum += taps_out[1];
-                    left_sum += taps_out[2];
-                    left_sum += taps_out[3];
+                    left_sum += last_coeffs_ptr[i] * taps_out;
                 }
 
-                float right_sum = 0;
+                simd::Float128 right_sum{};
                 float const right_num_notch = curr_num_notch[1];
                 current_delay[0] = 0;
                 current_delay[1] = right_num_notch;
@@ -346,18 +341,14 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
                 for (size_t i = 0; i < coeff_len_div_4; ++i) {
                     auto taps_out = self.delay_right_.GetAfterPush(current_delay);
                     current_delay += delay_inc;
-                    taps_out *= last_coeffs_ptr[i];
-                    right_sum += taps_out[0];
-                    right_sum += taps_out[1];
-                    right_sum += taps_out[2];
-                    right_sum += taps_out[3];
+                    right_sum += last_coeffs_ptr[i] * taps_out;
                 }
 
                 simd::Float128 damp_x;
-                damp_x[0] = left_sum;
-                damp_x[1] = right_sum;
-                *left = left_sum * self.fir_gain_;
-                *right = right_sum * self.fir_gain_;
+                damp_x[0] = simd::ReduceAdd(left_sum);
+                damp_x[1] = simd::ReduceAdd(right_sum);
+                *left = damp_x[0] * self.fir_gain_;
+                *right = damp_x[1] * self.fir_gain_;
                 ++left;
                 ++right;
                 damp_x = self.damp_.TickLowpass(damp_x, simd::BroadcastF128(curr_damp_coeff));
@@ -367,7 +358,7 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
             }
         }
         else {
-            for (size_t j = 0; j < num_process; ++j) {
+            for (int j = 0; j < num_process; ++j) {
                 curr_damp_coeff += delta_damp_coeff;
                 curr_num_notch += delta_num_notch;
 
@@ -417,10 +408,10 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
                                                    .im = simd::BroadcastF128(rotation_4.imag())};
                 simd::Complex128 right_rotation_mul = left_rotation_mul;
 
-                float left_re_sum = 0;
-                float left_im_sum = 0;
-                float right_re_sum = 0;
-                float right_im_sum = 0;
+                simd::Float128 left_re_sum{};
+                simd::Float128 left_im_sum{};
+                simd::Float128 right_re_sum{};
+                simd::Float128 right_im_sum{};
                 for (size_t i = 0; i < coeff_len_div_4; ++i) {
                     auto left_taps_out = self.delay_left_.GetAfterPush(left_current_delay);
                     auto right_taps_out = self.delay_right_.GetAfterPush(right_current_delay);
@@ -429,34 +420,23 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
 
                     left_taps_out *= last_coeffs_ptr[i];
                     auto temp = left_taps_out * left_rotation_coeff.re;
-                    left_re_sum += temp[0];
-                    left_re_sum += temp[1];
-                    left_re_sum += temp[2];
-                    left_re_sum += temp[3];
+                    left_re_sum += temp;
                     temp = left_taps_out * left_rotation_coeff.im;
-                    left_im_sum += temp[0];
-                    left_im_sum += temp[1];
-                    left_im_sum += temp[2];
-                    left_im_sum += temp[3];
+                    left_im_sum += temp;
 
                     right_taps_out *= last_coeffs_ptr[i];
                     temp = right_taps_out * right_rotation_coeff.re;
-                    right_re_sum += temp[0];
-                    right_re_sum += temp[1];
-                    right_re_sum += temp[2];
-                    right_re_sum += temp[3];
+                    right_re_sum += temp;
                     temp = right_taps_out * right_rotation_coeff.im;
-                    right_im_sum += temp[0];
-                    right_im_sum += temp[1];
-                    right_im_sum += temp[2];
-                    right_im_sum += temp[3];
+                    right_im_sum += temp;
 
                     left_rotation_coeff *= left_rotation_mul;
                     right_rotation_coeff *= right_rotation_mul;
                 }
 
-                auto remove_positive_spectrum =
-                    self.hilbert_complex_.Tick(simd::Float128{left_re_sum, left_im_sum, right_re_sum, right_im_sum});
+                auto remove_positive_spectrum = self.hilbert_complex_.Tick(
+                    simd::Float128{simd::ReduceAdd(left_re_sum), simd::ReduceAdd(left_im_sum),
+                                   simd::ReduceAdd(right_re_sum), simd::ReduceAdd(right_im_sum)});
                 // this will mirror the positive spectrum to negative domain, forming a real value signal
                 auto damp_x =
                     simd::Shuffle<simd::Float128, 0, 2, 1, 3>(remove_positive_spectrum, remove_positive_spectrum);
@@ -528,7 +508,8 @@ static void ProcessIir(dsp::DspState& state, float* left, float* right, int num_
         target_delay_samples = simd::Max(target_delay_samples, simd::BroadcastF128(1.0f));
         float const delay_time_smooth_factor =
             1.0f - std::exp(-1.0f / (self.fs_ / static_cast<float>(num_process) * global::kDelaySmoothMs / 1000.0f));
-        self.last_exp_delay_samples_ += delay_time_smooth_factor * (target_delay_samples - self.last_exp_delay_samples_);
+        self.last_exp_delay_samples_ +=
+            delay_time_smooth_factor * (target_delay_samples - self.last_exp_delay_samples_);
         auto curr_num_notch = self.last_delay_samples_;
         auto delta_num_notch = (self.last_exp_delay_samples_ - curr_num_notch) / static_cast<float>(num_process);
 
@@ -647,6 +628,8 @@ static void Init(dsp::DspState& state, float fs) noexcept {
     self.barber_osc_keep_amp_counter_ = 0;
     // VIC正交振荡器衰减非常慢，设定为5分钟保持一次
     self.barber_osc_keep_amp_need_ = static_cast<size_t>(fs * 60 * 5);
+
+    state.complex_fft_.init(global::kFFTSize);
 }
 
 static void Reset(dsp::DspState& state) noexcept {

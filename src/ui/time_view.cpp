@@ -15,8 +15,7 @@ void TimeView::paint(juce::Graphics& g) {
 
     // 获取图表bound
     auto b = getLocalBounds();
-    b.removeFromTop(title_.getHeight());
-    b.reduce(4, 4);
+    b.reduce(2, 2);
     auto bf = b.toFloat();
     g.setColour(ui::black_bg);
     g.fillRect(b);
@@ -37,7 +36,7 @@ void TimeView::paint(juce::Graphics& g) {
         lasty = y;
     }
 
-    if (display_custom_.getToggleState()) {
+    if (display_waveform_) {
         // 绘制自定义波形
         g.setColour(ui::active_bg);
         lasty = juce::jmap(p_.dsp_state_.param.custom_coeffs_[0], -1.0f, 1.0f, bf.getBottom(), bf.getY());
@@ -58,8 +57,7 @@ void TimeView::paint(juce::Graphics& g) {
 void TimeView::mouseDrag(const juce::MouseEvent& e) {
     // 获取图表bound
     auto b = getLocalBounds();
-    b.removeFromTop(title_.getHeight());
-    b.reduce(4, 4);
+    b.reduce(2, 2);
 
     auto pos = e.getPosition();
     pos.x = std::clamp(pos.x, b.getX(), b.getRight());
