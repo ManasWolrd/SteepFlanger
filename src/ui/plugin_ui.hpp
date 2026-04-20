@@ -1,153 +1,21 @@
 #pragma once
+#include "global.hpp"
+#include "pluginshared/bpm_sync_ui.hpp"
 #include "pluginshared/component.hpp"
 #include "pluginshared/preset_panel.hpp"
-#include "pluginshared/bpm_sync_ui.hpp"
-#include "global.hpp"
-#include <qwqdsp/spectral/real_fft.hpp>
-
-class SteepFlangerAudioProcessor;
-
-// ---------------------------------------- time prev ----------------------------------------
-class TimeView : public juce::Component {
-public:
-    TimeView(SteepFlangerAudioProcessor& p)
-        : p_(p)
-    {
-        addAndMakeVisible(title_);
-        reload_.onClick = [this] {
-            SendCoeffs();
-        };
-        reload_.setButtonText("reload");
-        addAndMakeVisible(reload_);
-
-        copy_.onClick = [this] {
-            CopyCoeffesToCustom();
-        };
-        copy_.setButtonText("copy");
-        addAndMakeVisible(copy_);
-
-        clear_.onClick = [this] {
-            ClearCustomCoeffs();
-        };
-        clear_.setButtonText("clear");
-        addAndMakeVisible(clear_);
-
-        display_custom_.setToggleState(true, juce::dontSendNotification);
-        addAndMakeVisible(display_custom_);
-        display_custom_.onStateChange = [this] {
-            RepaintTimeAndSpectralView();
-        };
-    }
-
-    void paint(juce::Graphics& g) override;
-
-    void mouseDown(const juce::MouseEvent& e) override {
-        mouseDrag(e);
-    }
-
-    void mouseDrag(const juce::MouseEvent& e) override;
-
-    void mouseUp(const juce::MouseEvent& e) override;
-
-    void SendCoeffs();
-
-    void CopyCoeffesToCustom();
-
-    void ClearCustomCoeffs();
-
-    void resized() override {
-        auto b = getLocalBounds();
-        auto top = b.removeFromTop(static_cast<int>(title_.getFont().getHeight() * 1.5f));
-        reload_.setBounds(top.removeFromRight(60).reduced(1, 1));
-        copy_.setBounds(top.removeFromRight(50).reduced(1, 1));
-        clear_.setBounds(top.removeFromRight(50).reduced(1, 1));
-        display_custom_.setBounds(top.removeFromRight(70).reduced(1, 1));
-        title_.setBounds(top);
-    }
-
-    void UpdateGui();
-
-private:
-    void RepaintTimeAndSpectralView();
-
-    SteepFlangerAudioProcessor& p_;
-    juce::Label title_{"", "Time view"};
-    ui::FlatButton reload_;
-    ui::FlatButton copy_;
-    ui::FlatButton clear_;
-    ui::Switch display_custom_{"show ctm"};
-    std::array<float, global::kMaxCoeffLen + 1> coeff_buffer_{};
-
-    friend class SpectralView;
-};
-
-class SpectralView : public juce::Component {
-public:
-    SpectralView(TimeView& time)
-        : time_(time)
-    {
-        addAndMakeVisible(title_);
-        fft_.Init(kGainFFTSize);
-    }
-
-    void paint(juce::Graphics& g) override;
-
-    void resized() override {
-        auto b = getLocalBounds();
-        title_.setBounds(b.removeFromTop(static_cast<int>(title_.getFont().getHeight())));
-    }
-
-    void UpdateGui();
-
-    void mouseDown(const juce::MouseEvent& e) override {
-        mouseDrag(e);
-    }
-
-    void mouseDrag(const juce::MouseEvent& e) override;
-
-    void mouseUp(const juce::MouseEvent& e) override;
-
-private:
-    static constexpr size_t kGainFFTSize = 1024;
-    static constexpr size_t kGainNumBins = qwqdsp_spectral::RealFFT::NumBins(kGainFFTSize);
-
-    TimeView& time_;
-    juce::Label title_{"", "Responce"};
-    std::array<float, kGainNumBins> gains_{};
-    float max_db_{};
-    float min_db_{};
-    qwqdsp_spectral::RealFFT fft_;
-};
-
-class UnsupportArch : public juce::Component {
-public:
-    UnsupportArch() {
-        title_.setJustificationType(juce::Justification::centred);
-        ui::SetLableBlack(title_);
-        addAndMakeVisible(title_);
-    }
-    void resized() override {
-        auto b = getLocalBounds();
-        title_.setBounds(b);
-    }
-    void paint(juce::Graphics& g) override {
-        g.fillAll(ui::green_bg);
-    }
-private:
-    juce::Label title_{"", "Unsupported cpu arch"};
-};
+#include "spectral_view.hpp"
+#include "time_view.hpp"
 
 //==============================================================================
-class PluginUi final 
+class PluginUi final
     : public juce::Component
-    , public juce::Timer
-{
+    , public juce::Timer {
 public:
-    explicit PluginUi (SteepFlangerAudioProcessor&);
+    explicit PluginUi(SteepFlangerAudioProcessor&);
     ~PluginUi() override;
 
     //==============================================================================
-    void paint (juce::Graphics&) override;
+    void paint(juce::Graphics&) override;
     void resized() override;
 
     void UpdateGui() {
@@ -160,51 +28,57 @@ public:
     }
 
     void timerCallback() override;
-    std::function<void(int,int)> on_want_new_size;
+    std::function<void(int, int)> on_want_new_size;
 private:
     void TrySetSize(int width, int height) {
         if (on_want_new_size) {
-            on_want_new_size(width, height); 
+            on_want_new_size(width, height);
         }
     }
+
+    void SetIirMode(bool is_iir);
+
     SteepFlangerAudioProcessor& p_;
-    UnsupportArch unsupported_arch_;
     pluginshared::PresetPanel preset_panel_;
 
-    juce::Rectangle<int> lfo_bound_;
+    const juce::Rectangle<int> lfo_bound_{0, 30, 150, 150};
     juce::Label lfo_title_{"lfo", "lfo"};
     ui::Dial delay_{"delay"};
     ui::Dial depth_{"depth"};
     ui::BpmSyncDial speed_{"speed"};
     ui::Dial phase_{"phase"};
     ui::Dial drywet_{"drywet"};
-    ui::FlatButton lfo_reset_phase_;
 
-    juce::Rectangle<int> fir_bound_;
-    juce::Label fir_title_{"fir", "fir"};
+    const juce::Rectangle<int> fir_bound_{370, 30, 150, 85};
+    ui::Switch iir_mode_{"iir", "fir"};
     ui::Dial cutoff_{"cutoff"};
     ui::Dial coeff_len_{"steep"};
     ui::Dial side_lobe_{"side_lobe"};
-    ui::Switch minum_phase_{"minum_phase"};
+    ui::Switch minum_phase_{"min(Φ)"};
     ui::Switch highpass_{"highpass"};
-    ui::Switch custom_{"custom"};
 
-    juce::Rectangle<int> feedback_bound_;
+    const juce::Rectangle<int> feedback_bound_{0, 180, 150, 85};
     juce::Label feedback_title_{"feedback", "feedback"};
-    ui::Dial fb_value_{"feedback"};
+    ui::Dial fb_value_{"gain"};
     ui::Dial fb_damp_{"damp"};
     ui::FlatButton panic_;
 
-    juce::Rectangle<int> barber_bound_;
+    const juce::Rectangle<int> barber_bound_{370, 180, 150, 85};
     juce::Label barber_title_{"barberpole", "barberpole"};
     ui::Switch barber_enable_{"enable"};
     ui::Dial barber_phase_{"phase"};
     ui::BpmSyncDial barber_speed_{"speed"};
     ui::Dial barber_stereo_{"stereo"};
-    ui::FlatButton barber_reset_phase_;
+
+    const juce::Rectangle<int> ops_bound_{370, 115, 150, 65};
+    juce::Label title_{"", "Time view"};
+    ui::FlatButton reload_{"reload"};
+    ui::FlatButton copy_{"copy"};
+    ui::FlatButton clear_{"clear"};
+    ui::Switch display_custom_{"show ctm"};
 
     TimeView timeview_;
     SpectralView spectralview_;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginUi)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginUi)
 };

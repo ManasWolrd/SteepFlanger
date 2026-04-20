@@ -3,7 +3,7 @@
 #include <pluginshared/preset_manager.hpp>
 #include <pluginshared/bpm_sync_lfo.hpp>
 
-#include "dsp/steep_flanger.hpp"
+#include "dsp/dsp_state.hpp"
 
 // ---------------------------------------- juce processor ----------------------------------------
 class SteepFlangerAudioProcessor final : public juce::AudioProcessor
@@ -63,9 +63,13 @@ public:
     juce::AudioParameterFloat* param_barber_stereo_;
     juce::AudioParameterFloat* param_drywet_;
     juce::AudioParameterBool* param_barber_enable_;
+    juce::AudioParameterBool* param_iir_mode_;
+    juce::AudioParameterInt* param_iir_filter_num_;
+    juce::AudioParameterFloat* param_iir_ripple_;
     
-    SteepFlanger dsp_;
-    SteepFlangerParameter dsp_param_;
+    dsp::DspState dsp_state_;
+    dsp::DspProcessor dsp_processor_;
+    std::atomic<bool> param_changed_;
 
     pluginshared::BpmSyncLFO delay_lfo_state_;
     pluginshared::BpmSyncLFO barber_lfo_state_;
