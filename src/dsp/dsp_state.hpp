@@ -14,46 +14,6 @@
 #include "pluginshared/simd.hpp"
 
 namespace dsp {
-template <simd::IsSimdFloat SimdT>
-struct DspStateN {
-    float fs_{};
-
-    // ----------------------------------------
-    // fir part
-    // ----------------------------------------
-    pluginshared::dsp::DelayLineSingleChannelMultiTime<SimdT> delay_left_;
-    pluginshared::dsp::DelayLineSingleChannelMultiTime<SimdT> delay_right_;
-    float fir_gain_{1.0f};
-    size_t coeff_len_{};
-    // feedback
-    float left_fb_{};
-    float right_fb_{};
-    pluginshared::dsp::OnePoleTPT<simd::Float128> damp_;
-    pluginshared::dsp::OnePoleTPT<simd::Float128> dc_;
-    float damp_lowpass_coeff_{1.0f};
-    float last_damp_lowpass_coeff_{1.0f};
-
-    // ----------------------------------------
-    // iir part
-    // ----------------------------------------
-    com::IirNFilter<SimdT> iir_[global::kIirMaxNumFilters / simd::LaneSize<SimdT>];
-    float iir_fir_k_{};
-    bool last_iir_highpass_{false};
-    com::XIirDelayLine iir_x_delay_;
-
-    // delay time lfo
-    float phase_{};
-    simd::Float128 last_exp_delay_samples_{};
-    simd::Float128 last_delay_samples_{};
-
-    // barberpole
-    pluginshared::dsp::StereoIIRHilbertDeeperCpx hilbert_complex_;
-    qwqdsp_misc::ExpSmoother barber_phase_smoother_;
-    qwqdsp_oscillator::VicSineOsc barber_oscillator_;
-    size_t barber_osc_keep_amp_counter_{};
-    size_t barber_osc_keep_amp_need_{};
-};
-
 struct DspParam {
     static constexpr float kInitMaxMs = global::kMaxDelayMs + global::kModuDelayMs + 0.1f;
 
@@ -101,6 +61,20 @@ struct DspParam {
     float ripple; // >0
 };
 
+template <simd::IsSimdFloat SimdT>
+struct DspStateN {
+    // ----------------------------------------
+    // fir part
+    // ----------------------------------------
+    pluginshared::dsp::DelayLineSingleChannelMultiTime<SimdT> delay_left_;
+    pluginshared::dsp::DelayLineSingleChannelMultiTime<SimdT> delay_right_;
+    
+    // ----------------------------------------
+    // iir part
+    // ----------------------------------------
+    com::IirNFilter<SimdT> iir_[global::kIirMaxNumFilters / simd::LaneSize<SimdT>];
+};
+
 struct DspState {
     DspStateN<simd::Float128> lane4;
     DspStateN<simd::Float256> lane8;
@@ -111,6 +85,38 @@ struct DspState {
     DspParam param;
     std::atomic<bool> have_new_coeff_{}; // dsp_processor just update it's fir coeff
     audiofft::AudioFFTcpx complex_fft_;
+
+    // -------------------- shared --------------------
+    float fs_{};
+
+    // fir
+    float fir_gain_{1.0f};
+    size_t coeff_len_{};
+
+    // feedback
+    float left_fb_{};
+    float right_fb_{};
+    pluginshared::dsp::OnePoleTPT<simd::Float128> damp_;
+    pluginshared::dsp::OnePoleTPT<simd::Float128> dc_;
+    float damp_lowpass_coeff_{1.0f};
+    float last_damp_lowpass_coeff_{1.0f};
+
+    // iir
+    float iir_fir_k_{};
+    bool last_iir_highpass_{false};
+    com::XIirDelayLine iir_x_delay_;
+
+    // delay time lfo
+    float phase_{};
+    simd::Float128 last_exp_delay_samples_{};
+    simd::Float128 last_delay_samples_{};
+
+    // barberpole
+    pluginshared::dsp::StereoIIRHilbertDeeperCpx hilbert_complex_;
+    qwqdsp_misc::ExpSmoother barber_phase_smoother_;
+    qwqdsp_oscillator::VicSineOsc barber_oscillator_;
+    size_t barber_osc_keep_amp_counter_{};
+    size_t barber_osc_keep_amp_need_{};
 };
 
 struct DspProcessor {

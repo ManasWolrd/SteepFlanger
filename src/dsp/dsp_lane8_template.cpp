@@ -14,7 +14,7 @@ static void UpdateFirCoeff(dsp::DspState& state) noexcept {
     auto& param = state.param;
 
     size_t coeff_len = static_cast<size_t>(param.fir_coeff_len);
-    self.coeff_len_ = coeff_len;
+    state.coeff_len_ = coeff_len;
 
     if (param.fir_source == DspParam::kWindowSinc) {
         std::span<float> kernel{state.coeffs_.data(), coeff_len};
@@ -94,7 +94,7 @@ static void UpdateFirCoeff(dsp::DspState& state) noexcept {
     for (auto x : kernel) {
         energy += x * x;
     }
-    self.fir_gain_ = 1.0f / std::sqrt(energy + 1e-10f);
+    state.fir_gain_ = 1.0f / std::sqrt(energy + 1e-10f);
 
     state.have_new_coeff_ = true;
 }
@@ -115,8 +115,8 @@ static void UpdateIirCoeff(dsp::DspState& state) noexcept {
     }
     cutoff = std::tan(cutoff / 2.0);
 
-    if (self.last_iir_highpass_ != param.fir_highpass) {
-        self.last_iir_highpass_ = param.fir_highpass;
+    if (state.last_iir_highpass_ != param.fir_highpass) {
+        state.last_iir_highpass_ = param.fir_highpass;
         for (size_t i = 0; i < global::kIirMaxNumFilters / 8; ++i) {
             self.iir_[i].Reset();
         }
@@ -230,7 +230,7 @@ static void UpdateIirCoeff(dsp::DspState& state) noexcept {
         filters[full_8_num].Set(simd::Complex256{r_re, r_im}, simd::Complex256{p_re, p_im});
     }
 
-    self.iir_fir_k_ = static_cast<float>(k);
+    state.iir_fir_k_ = static_cast<float>(k);
 }
 
 static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_samples) noexcept {
@@ -257,45 +257,45 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
 
         float const damp_pitch = param.damp_pitch;
         float const damp_freq = qwqdsp::convert::Pitch2Freq(damp_pitch);
-        float const damp_w = qwqdsp::convert::Freq2W(damp_freq, self.fs_);
-        self.damp_lowpass_coeff_ = self.damp_.ComputeCoeff(damp_w);
+        float const damp_w = qwqdsp::convert::Freq2W(damp_freq, state.fs_);
+        state.damp_lowpass_coeff_ = state.damp_.ComputeCoeff(damp_w);
 
-        self.barber_phase_smoother_.SetTarget(param.barber_phase);
-        self.barber_oscillator_.SetFreq(param.barber_speed, self.fs_);
+        state.barber_phase_smoother_.SetTarget(param.barber_phase);
+        state.barber_oscillator_.SetFreq(param.barber_speed, state.fs_);
 
         // update delay times
-        self.phase_ += param.lfo_freq / self.fs_ * static_cast<float>(num_process);
-        float right_phase = self.phase_ + param.lfo_phase;
+        state.phase_ += param.lfo_freq / state.fs_ * static_cast<float>(num_process);
+        float right_phase = state.phase_ + param.lfo_phase;
         {
             float t;
-            self.phase_ = std::modf(self.phase_, &t);
+            state.phase_ = std::modf(state.phase_, &t);
             right_phase = std::modf(right_phase, &t);
         }
-        float left_phase = self.phase_;
+        float left_phase = state.phase_;
 
         simd::Float128 lfo_modu;
         lfo_modu[0] = qwqdsp::polymath::SinPi(left_phase * std::numbers::pi_v<float>);
         lfo_modu[1] = qwqdsp::polymath::SinPi(right_phase * std::numbers::pi_v<float>);
 
-        float const delay_samples = param.delay_ms * self.fs_ / 1000.0f;
-        float const depth_samples = param.depth_ms * self.fs_ / 1000.0f;
+        float const delay_samples = param.delay_ms * state.fs_ / 1000.0f;
+        float const depth_samples = param.depth_ms * state.fs_ / 1000.0f;
         auto target_delay_samples = delay_samples + lfo_modu * depth_samples;
         target_delay_samples = simd::Max(target_delay_samples, simd::Float128{0.0f, 0.0f, 0.0f, 0.0f});
         float const delay_time_smooth_factor =
-            1.0f - std::exp(-1.0f / (self.fs_ / static_cast<float>(num_process) * global::kDelaySmoothMs / 1000.0f));
-        self.last_exp_delay_samples_ +=
-            delay_time_smooth_factor * (target_delay_samples - self.last_exp_delay_samples_);
-        auto curr_num_notch = self.last_delay_samples_;
-        auto delta_num_notch = (self.last_exp_delay_samples_ - curr_num_notch) / static_cast<float>(num_process);
+            1.0f - std::exp(-1.0f / (state.fs_ / static_cast<float>(num_process) * global::kDelaySmoothMs / 1000.0f));
+        state.last_exp_delay_samples_ +=
+            delay_time_smooth_factor * (target_delay_samples - state.last_exp_delay_samples_);
+        auto curr_num_notch = state.last_delay_samples_;
+        auto delta_num_notch = (state.last_exp_delay_samples_ - curr_num_notch) / static_cast<float>(num_process);
 
-        float curr_damp_coeff = self.last_damp_lowpass_coeff_;
-        float delta_damp_coeff = (self.damp_lowpass_coeff_ - curr_damp_coeff) / (static_cast<float>(num_process));
+        float curr_damp_coeff = state.last_damp_lowpass_coeff_;
+        float delta_damp_coeff = (state.damp_lowpass_coeff_ - curr_damp_coeff) / (static_cast<float>(num_process));
 
         float inv_samples = 1.0f / static_cast<float>(num_process);
         alignas(32) std::array<simd::Float256, global::kSIMDMaxCoeffLen / 8> delta_coeffs;
         auto* coeffs_ptr = (simd::Float256*)(state.coeffs_.data());
         auto* last_coeffs_ptr = (simd::Float256*)(state.last_coeffs_.data());
-        size_t const coeff_len_div8 = (self.coeff_len_ + 7) / 8;
+        size_t const coeff_len_div8 = (state.coeff_len_ + 7) / 8;
         float const wet_mix = param.drywet;
         simd::Float256 dry_coeff{1.0f - wet_mix, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
         for (size_t i = 0; i < coeff_len_div8; ++i) {
@@ -326,7 +326,7 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
                 current_delay[6] = left_num_notch * 6;
                 current_delay[7] = left_num_notch * 7;
                 auto delay_inc = simd::BroadcastF256(left_num_notch * 8);
-                self.delay_left_.Push(*left + self.left_fb_ * feedback_mul);
+                self.delay_left_.Push(*left + state.left_fb_ * feedback_mul);
                 for (size_t i = 0; i < coeff_len_div8; ++i) {
                     auto taps_out = self.delay_left_.GetAfterPush(current_delay);
                     current_delay += delay_inc;
@@ -346,7 +346,7 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
                 current_delay[6] = right_num_notch * 6;
                 current_delay[7] = right_num_notch * 7;
                 delay_inc = simd::BroadcastF256(right_num_notch * 8);
-                self.delay_right_.Push(*right + self.right_fb_ * feedback_mul);
+                self.delay_right_.Push(*right + state.right_fb_ * feedback_mul);
                 for (size_t i = 0; i < coeff_len_div8; ++i) {
                     auto taps_out = self.delay_right_.GetAfterPush(current_delay);
                     current_delay += delay_inc;
@@ -357,14 +357,14 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
                 simd::Float128 damp_x;
                 damp_x[0] = simd::ReduceAdd(left_sum);
                 damp_x[1] = simd::ReduceAdd(right_sum);
-                *left = damp_x[0] * self.fir_gain_;
-                *right = damp_x[1] * self.fir_gain_;
+                *left = damp_x[0] * state.fir_gain_;
+                *right = damp_x[1] * state.fir_gain_;
                 ++left;
                 ++right;
-                damp_x = self.damp_.TickLowpass(damp_x, simd::BroadcastF128(curr_damp_coeff));
-                auto dc_remove = self.dc_.TickHighpass(damp_x, simd::BroadcastF128(0.0005f));
-                self.left_fb_ = qwqdsp::polymath::ArctanPade(dc_remove[0]);
-                self.right_fb_ = qwqdsp::polymath::ArctanPade(dc_remove[1]);
+                damp_x = state.damp_.TickLowpass(damp_x, simd::BroadcastF128(curr_damp_coeff));
+                auto dc_remove = state.dc_.TickHighpass(damp_x, simd::BroadcastF128(0.0005f));
+                state.left_fb_ = qwqdsp::polymath::ArctanPade(dc_remove[0]);
+                state.right_fb_ = qwqdsp::polymath::ArctanPade(dc_remove[1]);
             }
         }
         else {
@@ -376,8 +376,8 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
                     last_coeffs_ptr[i] += delta_coeffs[i];
                 }
 
-                self.delay_left_.Push(*left + self.left_fb_ * feedback_mul);
-                self.delay_right_.Push(*right + self.right_fb_ * feedback_mul);
+                self.delay_left_.Push(*left + state.left_fb_ * feedback_mul);
+                self.delay_right_.Push(*right + state.right_fb_ * feedback_mul);
 
                 float const left_num_notch = curr_num_notch[0];
                 float const right_num_notch = curr_num_notch[1];
@@ -403,9 +403,9 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
                 auto right_delay_inc = simd::BroadcastF256(right_num_notch * 8);
 
                 auto const addition_rotation =
-                    std::polar(1.0f, self.barber_phase_smoother_.Tick() * std::numbers::pi_v<float> * 2);
-                self.barber_oscillator_.Tick();
-                auto const rotation_once = self.barber_oscillator_.GetCpx() * addition_rotation;
+                    std::polar(1.0f, state.barber_phase_smoother_.Tick() * std::numbers::pi_v<float> * 2);
+                state.barber_oscillator_.Tick();
+                auto const rotation_once = state.barber_oscillator_.GetCpx() * addition_rotation;
                 auto const rotation_2 = rotation_once * rotation_once;
                 auto const rotation_3 = rotation_once * rotation_2;
                 auto const rotation_4 = rotation_2 * rotation_2;
@@ -464,31 +464,31 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
                     right_rotation_coeff *= right_rotation_mul;
                 }
 
-                auto remove_positive_spectrum = self.hilbert_complex_.Tick(
+                auto remove_positive_spectrum = state.hilbert_complex_.Tick(
                     simd::Float128{simd::ReduceAdd(left_re_sum), simd::ReduceAdd(left_im_sum),
                                    simd::ReduceAdd(right_re_sum), simd::ReduceAdd(right_im_sum)});
                 // this will mirror the positive spectrum to negative domain, forming a real value signal
                 auto damp_x =
                     simd::Shuffle<simd::Float128, 0, 2, 1, 3>(remove_positive_spectrum, remove_positive_spectrum);
-                *left = damp_x[0] * self.fir_gain_;
-                *right = damp_x[1] * self.fir_gain_;
+                *left = damp_x[0] * state.fir_gain_;
+                *right = damp_x[1] * state.fir_gain_;
                 ++left;
                 ++right;
-                damp_x = self.damp_.TickLowpass(damp_x, simd::BroadcastF128(curr_damp_coeff));
-                auto dc_remove = self.dc_.TickHighpass(damp_x, simd::BroadcastF128(0.0005f));
-                self.left_fb_ = qwqdsp::polymath::ArctanPade(dc_remove[0]);
-                self.right_fb_ = qwqdsp::polymath::ArctanPade(dc_remove[1]);
+                damp_x = state.damp_.TickLowpass(damp_x, simd::BroadcastF128(curr_damp_coeff));
+                auto dc_remove = state.dc_.TickHighpass(damp_x, simd::BroadcastF128(0.0005f));
+                state.left_fb_ = qwqdsp::polymath::ArctanPade(dc_remove[0]);
+                state.right_fb_ = qwqdsp::polymath::ArctanPade(dc_remove[1]);
             }
 
-            self.barber_osc_keep_amp_counter_ += num_process;
+            state.barber_osc_keep_amp_counter_ += num_process;
             [[unlikely]]
-            if (self.barber_osc_keep_amp_counter_ > self.barber_osc_keep_amp_need_) {
-                self.barber_osc_keep_amp_counter_ = 0;
-                self.barber_oscillator_.KeepAmp();
+            if (state.barber_osc_keep_amp_counter_ > state.barber_osc_keep_amp_need_) {
+                state.barber_osc_keep_amp_counter_ = 0;
+                state.barber_oscillator_.KeepAmp();
             }
         }
-        self.last_delay_samples_ = self.last_exp_delay_samples_;
-        self.last_damp_lowpass_coeff_ = self.damp_lowpass_coeff_;
+        state.last_delay_samples_ = state.last_exp_delay_samples_;
+        state.last_damp_lowpass_coeff_ = state.damp_lowpass_coeff_;
     }
 }
 
@@ -512,39 +512,39 @@ static void ProcessIir(dsp::DspState& state, float* left, float* right, int num_
 
         float const damp_pitch = param.damp_pitch;
         float const damp_freq = qwqdsp::convert::Pitch2Freq(damp_pitch);
-        float const damp_w = qwqdsp::convert::Freq2W(damp_freq, self.fs_);
-        self.damp_lowpass_coeff_ = self.damp_.ComputeCoeff(damp_w);
+        float const damp_w = qwqdsp::convert::Freq2W(damp_freq, state.fs_);
+        state.damp_lowpass_coeff_ = state.damp_.ComputeCoeff(damp_w);
 
-        self.barber_phase_smoother_.SetTarget(param.barber_phase);
-        self.barber_oscillator_.SetFreq(param.barber_speed, self.fs_);
+        state.barber_phase_smoother_.SetTarget(param.barber_phase);
+        state.barber_oscillator_.SetFreq(param.barber_speed, state.fs_);
 
         // update delay times
-        self.phase_ += param.lfo_freq / self.fs_ * static_cast<float>(num_process);
-        float right_phase = self.phase_ + param.lfo_phase;
+        state.phase_ += param.lfo_freq / state.fs_ * static_cast<float>(num_process);
+        float right_phase = state.phase_ + param.lfo_phase;
         {
             float t;
-            self.phase_ = std::modf(self.phase_, &t);
+            state.phase_ = std::modf(state.phase_, &t);
             right_phase = std::modf(right_phase, &t);
         }
-        float left_phase = self.phase_;
+        float left_phase = state.phase_;
 
         simd::Float128 lfo_modu;
         lfo_modu[0] = qwqdsp::polymath::SinPi(left_phase * std::numbers::pi_v<float>);
         lfo_modu[1] = qwqdsp::polymath::SinPi(right_phase * std::numbers::pi_v<float>);
 
-        float const delay_samples = param.delay_ms * self.fs_ / 1000.0f;
-        float const depth_samples = param.depth_ms * self.fs_ / 1000.0f;
+        float const delay_samples = param.delay_ms * state.fs_ / 1000.0f;
+        float const depth_samples = param.depth_ms * state.fs_ / 1000.0f;
         auto target_delay_samples = delay_samples + lfo_modu * depth_samples;
         target_delay_samples = simd::Max(target_delay_samples, simd::BroadcastF128(1.0f));
         float const delay_time_smooth_factor =
-            1.0f - std::exp(-1.0f / (self.fs_ / static_cast<float>(num_process) * global::kDelaySmoothMs / 1000.0f));
-        self.last_exp_delay_samples_ +=
-            delay_time_smooth_factor * (target_delay_samples - self.last_exp_delay_samples_);
-        auto curr_num_notch = self.last_delay_samples_;
-        auto delta_num_notch = (self.last_exp_delay_samples_ - curr_num_notch) / static_cast<float>(num_process);
+            1.0f - std::exp(-1.0f / (state.fs_ / static_cast<float>(num_process) * global::kDelaySmoothMs / 1000.0f));
+        state.last_exp_delay_samples_ +=
+            delay_time_smooth_factor * (target_delay_samples - state.last_exp_delay_samples_);
+        auto curr_num_notch = state.last_delay_samples_;
+        auto delta_num_notch = (state.last_exp_delay_samples_ - curr_num_notch) / static_cast<float>(num_process);
 
-        float curr_damp_coeff = self.last_damp_lowpass_coeff_;
-        float delta_damp_coeff = (self.damp_lowpass_coeff_ - curr_damp_coeff) / (static_cast<float>(num_process));
+        float curr_damp_coeff = state.last_damp_lowpass_coeff_;
+        float delta_damp_coeff = (state.damp_lowpass_coeff_ - curr_damp_coeff) / (static_cast<float>(num_process));
 
         float const inv_samples = 1.0f / static_cast<float>(num_process);
         size_t num_simd_filter = (param.iir_num_filters + 7) / 8;
@@ -560,16 +560,16 @@ static void ProcessIir(dsp::DspState& state, float* left, float* right, int num_
                 float const right_num_notch = curr_num_notch[1];
                 auto& filters = self.iir_;
 
-                float right_sum = left_in * self.iir_fir_k_;
-                float left_sum = right_in * self.iir_fir_k_;
-                float x_left = self.iir_x_delay_.GetBeforePush<0>(left_num_notch);
-                float x_right = self.iir_x_delay_.GetBeforePush<1>(right_num_notch);
+                float right_sum = left_in * state.iir_fir_k_;
+                float left_sum = right_in * state.iir_fir_k_;
+                float x_left = state.iir_x_delay_.GetBeforePush<0>(left_num_notch);
+                float x_right = state.iir_x_delay_.GetBeforePush<1>(right_num_notch);
                 for (size_t i = 0; i < num_simd_filter; ++i) {
                     auto [l, r] = filters[i].Tick(x_left, x_right, left_num_notch, left_num_notch);
                     left_sum += l;
                     right_sum += r;
                 }
-                self.iir_x_delay_.Push(left_in, right_in);
+                state.iir_x_delay_.Push(left_in, right_in);
 
                 *left = left_sum * wet_mix + left_in * dry_mix;
                 *right = right_sum * wet_mix + right_in * dry_mix;
@@ -590,13 +590,13 @@ static void ProcessIir(dsp::DspState& state, float* left, float* right, int num_
 
                 std::complex<float> right_sum = 0;
                 std::complex<float> left_sum = 0;
-                float x_left = self.iir_x_delay_.GetBeforePush<0>(left_num_notch);
-                float x_right = self.iir_x_delay_.GetBeforePush<1>(right_num_notch);
+                float x_left = state.iir_x_delay_.GetBeforePush<0>(left_num_notch);
+                float x_right = state.iir_x_delay_.GetBeforePush<1>(right_num_notch);
 
                 auto const addition_rotation =
-                    std::polar(1.0f, self.barber_phase_smoother_.Tick() * std::numbers::pi_v<float> * 2);
-                self.barber_oscillator_.Tick();
-                auto const rotation_once = self.barber_oscillator_.GetCpx() * addition_rotation;
+                    std::polar(1.0f, state.barber_phase_smoother_.Tick() * std::numbers::pi_v<float> * 2);
+                state.barber_oscillator_.Tick();
+                auto const rotation_once = state.barber_oscillator_.GetCpx() * addition_rotation;
                 auto const right_channel_rotation = std::polar(1.0f, param.barber_stereo_phase);
                 auto left_rotate = rotation_once;
                 auto right_rotate = rotation_once * right_channel_rotation;
@@ -607,11 +607,11 @@ static void ProcessIir(dsp::DspState& state, float* left, float* right, int num_
                     left_sum += l;
                     right_sum += r;
                 }
-                self.iir_x_delay_.Push(left_in, right_in);
-                left_sum = left_sum * 0.5f + left_in * self.iir_fir_k_;
-                right_sum = right_sum * 0.5f + right_in * self.iir_fir_k_;
+                state.iir_x_delay_.Push(left_in, right_in);
+                left_sum = left_sum * 0.5f + left_in * state.iir_fir_k_;
+                right_sum = right_sum * 0.5f + right_in * state.iir_fir_k_;
 
-                auto remove_positive_spectrum = self.hilbert_complex_.Tick(
+                auto remove_positive_spectrum = state.hilbert_complex_.Tick(
                     simd::Float128{left_sum.real(), left_sum.imag(), right_sum.real(), right_sum.imag()});
                 // this will mirror the positive spectrum to negative domain, forming a real value signal
                 auto damp_x =
@@ -623,15 +623,15 @@ static void ProcessIir(dsp::DspState& state, float* left, float* right, int num_
                 ++right;
             }
 
-            self.barber_osc_keep_amp_counter_ += num_process;
+            state.barber_osc_keep_amp_counter_ += num_process;
             [[unlikely]]
-            if (self.barber_osc_keep_amp_counter_ > self.barber_osc_keep_amp_need_) {
-                self.barber_osc_keep_amp_counter_ = 0;
-                self.barber_oscillator_.KeepAmp();
+            if (state.barber_osc_keep_amp_counter_ > state.barber_osc_keep_amp_need_) {
+                state.barber_osc_keep_amp_counter_ = 0;
+                state.barber_oscillator_.KeepAmp();
             }
         }
-        self.last_delay_samples_ = self.last_exp_delay_samples_;
-        self.last_damp_lowpass_coeff_ = self.damp_lowpass_coeff_;
+        state.last_delay_samples_ = state.last_exp_delay_samples_;
+        state.last_damp_lowpass_coeff_ = state.damp_lowpass_coeff_;
     }
 }
 
@@ -646,18 +646,18 @@ static void Init(dsp::DspState& state, float fs) noexcept {
         self.iir_[i].Init(fs, DspParam::kInitMaxMs);
     }
 
-    self.iir_x_delay_.Init(fs, DspParam::kInitMaxMs);
+    state.iir_x_delay_.Init(fs, DspParam::kInitMaxMs);
 
-    self.fs_ = fs;
+    state.fs_ = fs;
     float const samples_need = fs * DspParam::kInitMaxMs / 1000.0f;
     self.delay_left_.Init(static_cast<size_t>(samples_need * global::kMaxCoeffLen));
     self.delay_right_.Init(static_cast<size_t>(samples_need * global::kMaxCoeffLen));
-    self.barber_phase_smoother_.SetSmoothTime(20.0f, fs);
-    self.damp_.Reset();
-    self.barber_oscillator_.Reset();
-    self.barber_osc_keep_amp_counter_ = 0;
+    state.barber_phase_smoother_.SetSmoothTime(20.0f, fs);
+    state.damp_.Reset();
+    state.barber_oscillator_.Reset();
+    state.barber_osc_keep_amp_counter_ = 0;
     // VIC正交振荡器衰减非常慢，设定为5分钟保持一次
-    self.barber_osc_keep_amp_need_ = static_cast<size_t>(fs * 60 * 5);
+    state.barber_osc_keep_amp_need_ = static_cast<size_t>(fs * 60 * 5);
 
     state.complex_fft_.init(global::kFFTSize);
 }
@@ -667,10 +667,10 @@ static void Reset(dsp::DspState& state) noexcept {
 
     self.delay_left_.Reset();
     self.delay_right_.Reset();
-    self.left_fb_ = 0;
-    self.right_fb_ = 0;
-    self.damp_.Reset();
-    self.hilbert_complex_.Reset();
+    state.left_fb_ = 0;
+    state.right_fb_ = 0;
+    state.damp_.Reset();
+    state.hilbert_complex_.Reset();
     for (size_t i = 0; i < global::kIirMaxNumFilters / 8; ++i) {
         self.iir_[i].Reset();
     }

@@ -321,6 +321,12 @@ void SteepFlangerAudioProcessor::releaseResources()
     // spare memory, etc.
 }
 
+void SteepFlangerAudioProcessor::reset() {
+    if (dsp_processor_.IsValid()) {
+        dsp_processor_.reset(dsp_state_);
+    }
+}
+
 bool SteepFlangerAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
   #if JucePlugin_IsMidiEffect
@@ -358,11 +364,11 @@ void SteepFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     auto lfo_info = delay_lfo_state_.SyncBpm2(getPlayHead());
     if (lfo_info.sync_lfo) {
-        // dsp_processor_.SetLFOPhase(lfo_info.lfo_phase);
+        dsp_state_.phase_ = lfo_info.lfo_phase;
     }
     auto barber_lfo_info = barber_lfo_state_.SyncBpm2(getPlayHead());
     if (barber_lfo_info.sync_lfo) {
-        // dsp_processor_.SetBarberLFOPhase(barber_lfo_info.lfo_phase);
+        dsp_state_.barber_oscillator_.Reset(barber_lfo_info.lfo_phase * std::numbers::pi_v<float> * 2);
     }
 
     dsp_state_.param.delay_ms = param_delay_ms_->get();
