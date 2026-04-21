@@ -73,6 +73,7 @@ jobs:
     # from pamplejuce
     - name: Install JUCE's Linux Deps
       # Thanks to McMartin & co https://forum.juce.com/t/list-of-juce-dependencies-under-linux/15121/44
+      if: runner.os == 'Linux'
       run: |
         # IPP stuff
         wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor | sudo tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
