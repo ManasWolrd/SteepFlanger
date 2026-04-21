@@ -12,6 +12,7 @@ PluginUi::PluginUi(SteepFlangerAudioProcessor& p)
     , spectralview_(timeview_, p) {
     auto& apvts = *p.value_tree_;
 
+    preset_panel_.SetDspInstName(p.dsp_processor_.name);
     addAndMakeVisible(preset_panel_);
 
     addAndMakeVisible(lfo_title_);

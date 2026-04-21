@@ -526,8 +526,8 @@ static void ProcessIir(dsp::DspState& state, float* left, float* right, int num_
 
                 float const left_in = *left;
                 float const right_in = *right;
-                float const left_num_notch = curr_num_notch[0];
-                float const right_num_notch = curr_num_notch[1];
+                int const left_num_notch = curr_num_notch[0];
+                int const right_num_notch = curr_num_notch[1];
                 auto& filters = self.iir_;
 
                 float right_sum = left_in * self.iir_fir_k_;
@@ -554,8 +554,8 @@ static void ProcessIir(dsp::DspState& state, float* left, float* right, int num_
 
                 float const left_in = *left;
                 float const right_in = *right;
-                float const left_num_notch = curr_num_notch[0];
-                float const right_num_notch = curr_num_notch[1];
+                int const left_num_notch = curr_num_notch[0];
+                int const right_num_notch = curr_num_notch[1];
                 auto& filters = self.iir_;
 
                 std::complex<float> right_sum = 0;
@@ -667,5 +667,5 @@ static void Process(dsp::DspState& state, float* left, float* right, int num_sam
 #error "不应该编译这个文件,在其他cpp包含这个cpp并定义DSP_EXPORT_NAME=`dsp_dispatch.cpp里的变量`"
 #endif
 
-DspProcessor DSP_EXPORT_NAME{Init, Reset, Update, Process};
+DspProcessor DSP_EXPORT_NAME{Init, Reset, Update, Process, DSP_INST_NAME};
 } // namespace dsp

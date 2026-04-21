@@ -118,6 +118,8 @@ struct DspProcessor {
     void (*update)(DspState& state, const DspParam& p) noexcept;
     void (*process)(DspState& state, float* left, float* right, int num_samples) noexcept;
 
+    const char* name;
+
     bool IsValid() const noexcept {
         return init != nullptr;
     }

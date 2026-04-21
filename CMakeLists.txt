@@ -21,7 +21,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 project(${PLUGIN_NAME} VERSION ${PLUGIN_VERSION})
 
-add_compile_definitions(PROJECT_VERSION="${PROJECT_VERSION}")
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_XCODE_GENERATE_SCHEME OFF)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
@@ -86,12 +85,14 @@ if(APPLE)
         src/dsp/dsp_avx.cpp
         src/dsp/dsp_sse4.cpp
         src/dsp/dsp_sse2.cpp
+        src/dsp/dsp_fma.cpp
     )
     set_source_files_properties("src/dsp/dsp_neon.cpp" PROPERTIES COMPILE_FLAGS "-arch arm64")
     set_source_files_properties("src/dsp/dsp_sse2.cpp" PROPERTIES COMPILE_FLAGS "-arch x86_64 -msse2")
     set_source_files_properties("src/dsp/dsp_sse4.cpp" PROPERTIES COMPILE_FLAGS "-arch x86_64 -msse4.1")
     set_source_files_properties("src/dsp/dsp_avx.cpp" PROPERTIES COMPILE_FLAGS "-arch x86_64 -mavx")
     set_source_files_properties("src/dsp/dsp_avx2.cpp" PROPERTIES COMPILE_FLAGS "-arch x86_64 -mavx2")
+    set_source_files_properties("src/dsp/dsp_fma.cpp" PROPERTIES COMPILE_FLAGS "-arch x86_64 -mavx2 -mfma")
 else()
     target_sources(${PROJECT_NAME}
     PRIVATE
@@ -99,11 +100,13 @@ else()
         src/dsp/dsp_avx.cpp
         src/dsp/dsp_sse4.cpp
         src/dsp/dsp_sse2.cpp
+        src/dsp/dsp_fma.cpp
     )
     set_source_files_properties("src/dsp/dsp_sse2.cpp" PROPERTIES COMPILE_FLAGS "-msse2")
     set_source_files_properties("src/dsp/dsp_sse4.cpp" PROPERTIES COMPILE_FLAGS "-msse4.1")
     set_source_files_properties("src/dsp/dsp_avx.cpp" PROPERTIES COMPILE_FLAGS "-mavx")
     set_source_files_properties("src/dsp/dsp_avx2.cpp" PROPERTIES COMPILE_FLAGS "-mavx2")
+    set_source_files_properties("src/dsp/dsp_fma.cpp" PROPERTIES COMPILE_FLAGS "-mavx2 -mfma")
 endif()
 
 # 头文件目录

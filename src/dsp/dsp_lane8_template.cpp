@@ -697,5 +697,5 @@ static void Process(dsp::DspState& state, float* left, float* right, int num_sam
 #error "不应该编译这个文件,在其他cpp包含这个cpp并定义DSP_EXPORT_NAME=`dsp_dispatch.cpp里的变量`"
 #endif
 
-DspProcessor DSP_EXPORT_NAME{Init, Reset, Update, Process};
+DspProcessor DSP_EXPORT_NAME{Init, Reset, Update, Process, DSP_INST_NAME};
 } // namespace dsp
