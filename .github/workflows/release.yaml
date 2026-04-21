@@ -32,7 +32,7 @@ jobs:
 
     - name: Generate Build Files
       run: |
-        cmake -G "Ninja" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -DBUILD_STANDALONE=OFF -DBUILD_IN_CI=1 -S . -B ./build
+        cmake -G "Ninja" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -DBUILD_STANDALONE=OFF -DCPP_SIMD_DETECTOR_BUILD_EXAMPLES=OFF -DBUILD_IN_CI=1 -S . -B ./build
 
     - name: Build Project
       run: |
@@ -65,7 +65,7 @@ jobs:
 
     - name: Generate Build Files
       run: |
-        cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DBUILD_STANDALONE=OFF -DCPP_SIMD_DETECTOR_BUILD_EXAMPLES=OFF -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DBUILD_IN_CI=1 -S . -B ./build
+        cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DBUILD_STANDALONE=OFF -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DCPP_SIMD_DETECTOR_BUILD_EXAMPLES=OFF -DBUILD_IN_CI=1 -S . -B ./build
 
     - name: Build Project
       run: |
@@ -152,15 +152,37 @@ jobs:
         name: plugin-linux
         path: artifacts/plugin-linux
 
+    # - name: Append tag to artifacts
+    #   run: |
+    #     TAG_NAME=${GITHUB_REF#refs/tags/}  # Extracts the tag name, e.g., v1.0.0
+
+    #     # Zip each platform's artifacts with the tag in the name
+    #     cd artifacts
+    #     zip -r plugin-win-${TAG_NAME}.zip plugin-win
+    #     zip -r plugin-macos-${TAG_NAME}.zip plugin-macos
+    #     zip -r plugin-linux-${TAG_NAME}.zip plugin-linux
     - name: Append tag to artifacts
       run: |
-        TAG_NAME=${GITHUB_REF#refs/tags/}  # Extracts the tag name, e.g., v1.0.0
+        TAG_NAME=${GITHUB_REF#refs/tags/}
+        REPO_NAME="${{ github.event.repository.name }}"
+            
+        MAC_RELEASE_DIR=$(find $GITHUB_WORKSPACE/artifacts/plugin-macos -type d -name "Release" | head -n 1)
+        WIN_RELEASE_DIR=$(find $GITHUB_WORKSPACE/artifacts/plugin-win -type d -name "Release" | head -n 1)
+        LINUX_RELEASE_DIR=$(find $GITHUB_WORKSPACE/artifacts/plugin-linux -type d -name "Release" | head -n 1)
 
-        # Zip each platform's artifacts with the tag in the name
-        cd artifacts
-        zip -r plugin-win-${TAG_NAME}.zip plugin-win
-        zip -r plugin-macos-${TAG_NAME}.zip plugin-macos
-        zip -r plugin-linux-${TAG_NAME}.zip plugin-linux
+        DEST_DIR="$GITHUB_WORKSPACE/artifacts"
+
+        cd "$WIN_RELEASE_DIR"
+        zip -r "${REPO_NAME}-win-${TAG_NAME}.zip" .
+        cp "${REPO_NAME}-win-${TAG_NAME}.zip" "$DEST_DIR/"
+
+        cd "$MAC_RELEASE_DIR"
+        zip -r "${REPO_NAME}-macos-${TAG_NAME}.zip" .
+        cp "${REPO_NAME}-macos-${TAG_NAME}.zip" "$DEST_DIR/"
+
+        cd "$LINUX_RELEASE_DIR"
+        zip -r "${REPO_NAME}-linux-${TAG_NAME}.zip" .
+        cp "${REPO_NAME}-linux-${TAG_NAME}.zip" "$DEST_DIR/"
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
@@ -168,8 +190,8 @@ jobs:
         draft: true
         tag_name: ${{ github.ref_name }}
         files: |
-          artifacts/plugin-win-*.zip
-          artifacts/plugin-macos-*.zip
-          artifacts/plugin-linux-*.zip
+          artifacts/*-win-*.zip
+          artifacts/*-macos-*.zip
+          artifacts/*-linux-*.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

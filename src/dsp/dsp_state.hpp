@@ -2,6 +2,7 @@
 #include <AudioFFTcpx.h>
 #include <complex>
 #include <numbers>
+#include <atomic>
 #include <qwqdsp/misc/smoother.hpp>
 #include <qwqdsp/oscillator/vic_sine_osc.hpp>
 #include "com/iirn_filter.hpp"
