@@ -8,6 +8,8 @@ set(PLUGIN_REPO_URL "https://github.com/ManasWolrd/SteepFlanger")
 set(PLUGIN_NAME SteepFlanger)
 set(PLUGIN_VERSION 0.2.0)
 set(PLUGIN_BUNDLE_ID "com.ManasWolrd.${PLUGIN_NAME}")
+set(plugin_codes Stfg)
+set(plugin_manufacturer_code MaWd)
 
 option(BUILD_STANDALONE "Build Standalone plugin format" ON)
 option(BUILD_VST3 "Build VST3 plugin format" ON)
@@ -24,9 +26,6 @@ project(${PLUGIN_NAME} VERSION ${PLUGIN_VERSION})
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_XCODE_GENERATE_SCHEME OFF)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-
-string(SUBSTRING plugin_codes ${PLUGIN_NAME} 0 4)
-string(SUBSTRING plugin_manufacturer_code ${TEAM_NAME} 0 4)
 
 add_subdirectory(libs/JUCE)
 
