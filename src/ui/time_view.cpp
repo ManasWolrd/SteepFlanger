@@ -25,7 +25,7 @@ void TimeView::paint(juce::Graphics& g) {
     g.setColour(ui::line_fore);
     float lasty = juce::jmap(coeff_buffer_[0], -1.0f, 1.0f, bf.getBottom(), bf.getY());
     float lastx = bf.getX();
-    float const fcoeff_len = static_cast<float>(p_.dsp_state_.param.fir_coeff_len);
+    float const fcoeff_len = static_cast<float>(p_.param_fir_coeff_len_->get());
     for (int x = 0; x < b.getWidth(); ++x) {
         size_t const idx = static_cast<size_t>(static_cast<float>(x) * fcoeff_len / static_cast<float>(b.getWidth()));
         float const val = coeff_buffer_[idx];
@@ -63,11 +63,11 @@ void TimeView::mouseDrag(const juce::MouseEvent& e) {
     pos.x = std::clamp(pos.x, b.getX(), b.getRight());
     pos.y = std::clamp(pos.y, b.getY(), b.getBottom());
 
-    float const fcoeff_len = static_cast<float>(p_.dsp_state_.param.fir_coeff_len);
+    float const fcoeff_len = static_cast<float>(p_.param_fir_coeff_len_->get());
     auto bf = b.toFloat();
     size_t idx = static_cast<size_t>((static_cast<float>(pos.getX()) - bf.getX()) * fcoeff_len
                                      / static_cast<float>(bf.getWidth()));
-    idx = std::clamp<size_t>(idx, 0, p_.dsp_state_.param.fir_coeff_len - 1);
+    idx = std::clamp<size_t>(idx, 0, p_.param_fir_coeff_len_->get() - 1);
 
     float val = juce::jmap(static_cast<float>(pos.y), bf.getY(), bf.getBottom(), 1.0f, -1.0f);
     if (e.mods.isRightButtonDown()) {

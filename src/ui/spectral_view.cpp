@@ -17,7 +17,7 @@ void SpectralView::paint(juce::Graphics& g) {
     g.fillRect(b);
     
     // 绘制频谱音量数字
-    float const fcoeff_len = static_cast<float>(time_.p_.dsp_state_.param.fir_coeff_len);
+    float const fcoeff_len = static_cast<float>(time_.p_.param_fir_coeff_len_->get());
     constexpr int kNumLines = static_cast<int>((kDbCeil - kDbFloor) / kDbStep) + 1;
     float const centerx = text_bound.getCentreX();
     g.setColour(juce::Colours::white);
@@ -69,7 +69,7 @@ void SpectralView::paint(juce::Graphics& g) {
 
 void SpectralView::UpdateGui() {
     std::array<float, kGainFFTSize> fft_buffer{};
-    std::copy_n(time_.coeff_buffer_.begin(), time_.p_.dsp_state_.param.fir_coeff_len, fft_buffer.begin());
+    std::copy_n(time_.coeff_buffer_.begin(), time_.p_.param_fir_coeff_len_->get(), fft_buffer.begin());
     fft_.FFTGainPhase(fft_buffer, gains_);
 
     for (auto& x : gains_) {
@@ -94,7 +94,7 @@ void SpectralView::mouseDrag(const juce::MouseEvent& e) {
     pos.x = std::clamp(pos.x, b.getX(), b.getRight());
     pos.y = std::clamp(pos.y, b.getY(), b.getBottom());
 
-    size_t const coeff_len = time_.p_.dsp_state_.param.fir_coeff_len;
+    size_t const coeff_len = time_.p_.param_fir_coeff_len_->get();
     float const fcoeff_len = static_cast<float>(coeff_len);
     size_t idx = static_cast<size_t>((static_cast<float>(pos.getX()) - bf.getX()) * fcoeff_len / bf.getWidth());
     idx = std::clamp<size_t>(idx, 0, coeff_len - 1);
@@ -139,10 +139,10 @@ void SpectralView::mouseUp(const juce::MouseEvent& e) {
 }
 
 void SpectralView::DrawIir(juce::Graphics& g) {
-    int nfilter_ = p_.dsp_state_.param.iir_num_filters;
-    float w_ = p_.dsp_state_.param.fir_cutoff;
-    float ripple_ = p_.dsp_state_.param.ripple;
-    bool highpass = p_.dsp_state_.param.fir_highpass;
+    int nfilter_ = p_.param_iir_filter_num_->get();
+    float w_ = p_.param_fir_cutoff_->get();
+    float ripple_ = p_.param_iir_ripple_->get();
+    bool highpass = p_.param_fir_highpass_->get();
 
     if (nfilter_ <= 0) {
         return;

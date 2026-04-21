@@ -71,6 +71,9 @@ public:
     dsp::DspProcessor dsp_processor_;
     std::atomic<bool> param_changed_;
 
+    std::atomic<bool> has_fir_source_from_state_;
+    dsp::DspParam::FirSource fir_source_from_state_;
+
     pluginshared::BpmSyncLFO delay_lfo_state_;
     pluginshared::BpmSyncLFO barber_lfo_state_;
 

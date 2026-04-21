@@ -352,6 +352,10 @@ void SteepFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     juce::ScopedNoDenormals noDenormals;
     param_listener_.HandleDirty();
 
+    if (has_fir_source_from_state_.exchange(false)) {
+        dsp_state_.param.fir_source = fir_source_from_state_;
+    }
+
     auto lfo_info = delay_lfo_state_.SyncBpm2(getPlayHead());
     if (lfo_info.sync_lfo) {
         // dsp_processor_.SetLFOPhase(lfo_info.lfo_phase);
@@ -447,8 +451,6 @@ void SteepFlangerAudioProcessor::setStateInformation (const void* data, int size
 
         auto custom_coeffs = plugin_state.getChildWithName("CUSTOM_COEFFS");
         if (custom_coeffs.isValid()) {
-            int tmp = custom_coeffs.getProperty("FIR_SOURCE", static_cast<int>(dsp::DspParam::FirSource::kWindowSinc));
-            dsp_state_.param.fir_source = static_cast<dsp::DspParam::FirSource>(tmp);
             auto data_sections = custom_coeffs.getChildWithName("DATA");
             if (data_sections.isValid()) {
                 std::fill_n(dsp_state_.param.custom_coeffs_.begin(), global::kMaxCoeffLen, 0.0f);
@@ -460,6 +462,10 @@ void SteepFlangerAudioProcessor::setStateInformation (const void* data, int size
                 }
                 dsp_state_.param.should_update_fir_ = true;
             }
+
+            int tmp = custom_coeffs.getProperty("FIR_SOURCE", static_cast<int>(dsp::DspParam::FirSource::kWindowSinc));
+            fir_source_from_state_ = static_cast<dsp::DspParam::FirSource>(tmp);
+            has_fir_source_from_state_ = true;
         }
     }
 
