@@ -232,10 +232,13 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
     preset_manager_ = std::make_unique<pluginshared::PresetManager>(*value_tree_, *this, pluginshared::UpdateData::GithubInfo{
         global::kPluginRepoOwnerName, global::kPluginRepoName
     });
-    preset_manager_->AddFactoryPreset(BinaryData::dispersion_voice_xml, BinaryData::dispersion_voice_xmlSize, "DispersionVoice");
+    preset_manager_->AddFactoryPreset(BinaryData::Flanger_xml, BinaryData::Flanger_xmlSize, "Flanger");
+    preset_manager_->AddFactoryPreset(BinaryData::Barberpole_Flanger_xml, BinaryData::Barberpole_Flanger_xmlSize, "BarberpoleFlanger");
+    preset_manager_->AddFactoryPreset(BinaryData::HeavyBarberpole_xml, BinaryData::HeavyBarberpole_xmlSize, "HearyBarberpole");
     preset_manager_->AddFactoryPreset(BinaryData::metallic_resonace_xml, BinaryData::metallic_resonace_xmlSize, "MetallicResponce");
     preset_manager_->AddFactoryPreset(BinaryData::wormhole_robot_xml, BinaryData::wormhole_robot_xmlSize, "WormholeRobot");
     preset_manager_->AddFactoryPreset(BinaryData::YORK_xml, BinaryData::YORK_xmlSize, "YORK");
+    preset_manager_->AddFactoryPreset(BinaryData::dispersion_voice_xml, BinaryData::dispersion_voice_xmlSize, "DispersionVoice");
 }
 
 SteepFlangerAudioProcessor::~SteepFlangerAudioProcessor()

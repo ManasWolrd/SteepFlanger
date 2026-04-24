@@ -255,6 +255,7 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
         warp_drywet = 0.5f * warp_drywet + 0.5f;
         warp_drywet = std::clamp(warp_drywet, 0.0f, 1.0f);
         float feedback_mul = warp_drywet * param.feedback;
+        float fir_gain_lerp = std::lerp(1.0f, state.fir_gain_, param.drywet);
 
         float const damp_pitch = param.damp_pitch;
         float const damp_freq = qwqdsp::convert::Pitch2Freq(damp_pitch);
@@ -347,8 +348,8 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
                 simd::Float128 damp_x;
                 damp_x[0] = simd::ReduceAdd(left_sum);
                 damp_x[1] = simd::ReduceAdd(right_sum);
-                *left = damp_x[0] * state.fir_gain_;
-                *right = damp_x[1] * state.fir_gain_;
+                *left = damp_x[0] * fir_gain_lerp;
+                *right = damp_x[1] * fir_gain_lerp;
                 ++left;
                 ++right;
                 damp_x = state.damp_.TickLowpass(damp_x, simd::BroadcastF128(curr_damp_coeff));
@@ -440,8 +441,8 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
                 // this will mirror the positive spectrum to negative domain, forming a real value signal
                 auto damp_x =
                     simd::Shuffle<simd::Float128, 0, 2, 1, 3>(remove_positive_spectrum, remove_positive_spectrum);
-                *left = damp_x[0] * state.fir_gain_;
-                *right = damp_x[1] * state.fir_gain_;
+                *left = damp_x[0] * fir_gain_lerp;
+                *right = damp_x[1] * fir_gain_lerp;
                 ++left;
                 ++right;
                 damp_x = state.damp_.TickLowpass(damp_x, simd::BroadcastF128(curr_damp_coeff));
