@@ -13,6 +13,7 @@ public:
     void paint(juce::Graphics& g) override;
 
     void mouseDown(const juce::MouseEvent& e) override {
+        if (!display_waveform_) return;
         mouseDrag(e);
     }
 

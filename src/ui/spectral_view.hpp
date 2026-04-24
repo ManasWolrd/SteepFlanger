@@ -22,9 +22,7 @@ public:
 
     void UpdateGui();
 
-    void mouseDown(const juce::MouseEvent& e) override {
-        mouseDrag(e);
-    }
+    void mouseDown(const juce::MouseEvent& e) override;
 
     void mouseDrag(const juce::MouseEvent& e) override;
 

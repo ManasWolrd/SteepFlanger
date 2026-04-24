@@ -84,7 +84,9 @@ void SpectralView::UpdateGui() {
 }
 
 void SpectralView::mouseDrag(const juce::MouseEvent& e) {
+    if (!time_.display_waveform_) return;
     // 获取图表bound
+
     auto b = getLocalBounds();
     b.reduce(2, 8);
     b.removeFromLeft(24).toFloat();
@@ -134,8 +136,14 @@ void SpectralView::mouseDrag(const juce::MouseEvent& e) {
 }
 
 void SpectralView::mouseUp(const juce::MouseEvent& e) {
+    if (!time_.display_waveform_) return;
     std::ignore = e;
     time_.SendCoeffs();
+}
+
+void SpectralView::mouseDown(const juce::MouseEvent& e) {
+    if (!time_.display_waveform_) return;
+    mouseDrag(e);
 }
 
 void SpectralView::DrawIir(juce::Graphics& g) {

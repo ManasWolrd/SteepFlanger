@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "BinaryData.h"
 
 //==============================================================================
 SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
@@ -13,7 +14,7 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
                        )
 {
     dsp_processor_ = dsp::GetProcessorDsp();
-    
+
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
     // lfo
@@ -38,7 +39,7 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         layout.add(std::move(p));
     }
     {
-        auto[pfreq, ptype] = delay_lfo_state_.Build("speed", 0, 10, 0.01f, 0.4f, true, "0", "1/64", 0.2f, "4", false);
+        auto[pfreq, ptype] = delay_lfo_state_.Build("speed", 0, 10, 0.01f, 0.4f, true, "0", "1/64T", 0.2f, "4", false);
         layout.add(std::move(pfreq));
         layout.add(std::move(ptype));
     }
@@ -176,7 +177,7 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         layout.add(std::move(p));
     }
     {
-        auto[p, p2] = barber_lfo_state_.Build("barber_speed", -10.0f, 10.0f, 0.01f, 0.4f, true, "-1/64", "1/64", 0.2f, "1", false);
+        auto[p, p2] = barber_lfo_state_.Build("barber_speed", -10.0f, 10.0f, 0.01f, 0.4f, true, "-1/64T", "1/64T", 0.2f, "1", false);
         layout.add(std::move(p));
         layout.add(std::move(p2));
     }
@@ -231,6 +232,10 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
     preset_manager_ = std::make_unique<pluginshared::PresetManager>(*value_tree_, *this, pluginshared::UpdateData::GithubInfo{
         global::kPluginRepoOwnerName, global::kPluginRepoName
     });
+    preset_manager_->AddFactoryPreset(BinaryData::dispersion_voice_xml, BinaryData::dispersion_voice_xmlSize, "DispersionVoice");
+    preset_manager_->AddFactoryPreset(BinaryData::metallic_resonace_xml, BinaryData::metallic_resonace_xmlSize, "MetallicResponce");
+    preset_manager_->AddFactoryPreset(BinaryData::wormhole_robot_xml, BinaryData::wormhole_robot_xmlSize, "WormholeRobot");
+    preset_manager_->AddFactoryPreset(BinaryData::YORK_xml, BinaryData::YORK_xmlSize, "YORK");
 }
 
 SteepFlangerAudioProcessor::~SteepFlangerAudioProcessor()
@@ -308,7 +313,7 @@ void SteepFlangerAudioProcessor::changeProgramName (int index, const juce::Strin
 void SteepFlangerAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     if (!dsp_processor_.IsValid()) return;
-    
+
     dsp_processor_.init(dsp_state_, static_cast<float>(sampleRate));
     dsp_processor_.reset(dsp_state_);
 

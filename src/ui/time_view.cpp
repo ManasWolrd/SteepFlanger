@@ -55,6 +55,8 @@ void TimeView::paint(juce::Graphics& g) {
 }
 
 void TimeView::mouseDrag(const juce::MouseEvent& e) {
+    if (!display_waveform_) return;
+
     // 获取图表bound
     auto b = getLocalBounds();
     b.reduce(2, 2);
@@ -91,6 +93,8 @@ void TimeView::RepaintTimeAndSpectralView() {
 }
 
 void TimeView::mouseUp(const juce::MouseEvent& e) {
+    if (!display_waveform_) return;
+    
     std::ignore = e;
     SendCoeffs();
 }
