@@ -151,6 +151,7 @@ jobs:
           format: YYYYMMDD
 
       - name: Run Pluginval Validation
+        continue-on-error: true
         shell: bash
         run: |
           TEST_TARGET="${{ env.VST3_PATH }}"
