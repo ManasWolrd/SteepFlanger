@@ -4,8 +4,9 @@
 
 void TimeView::UpdateGui() {
     std::ranges::copy(p_.dsp_state_.coeffs_, coeff_buffer_.begin());
-    if (p_.dsp_state_.param.fir_coeff_len != 0) {
-        coeff_buffer_[p_.dsp_state_.param.fir_coeff_len] = coeff_buffer_[p_.dsp_state_.param.fir_coeff_len - 1];
+    int curr_coeff_len = p_.param_fir_coeff_len_->get();
+    if (curr_coeff_len != 0) {
+        coeff_buffer_[curr_coeff_len] = coeff_buffer_[curr_coeff_len - 1];
     }
     repaint();
 }

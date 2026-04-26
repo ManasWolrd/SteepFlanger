@@ -82,7 +82,7 @@ struct DspState {
     simd::Array256<float, global::kSIMDMaxCoeffLen> coeffs_{};
     simd::Array256<float, global::kSIMDMaxCoeffLen> last_coeffs_{};
     
-    DspParam param;
+    DspParam param{};
     std::atomic<bool> have_new_coeff_{}; // dsp_processor just update it's fir coeff
     audiofft::AudioFFTcpx complex_fft_;
 

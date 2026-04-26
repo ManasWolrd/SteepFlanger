@@ -1,9 +1,5 @@
 #include "plugin_ui.hpp"
-
 #include "../PluginProcessor.h"
-
-#include "qwqdsp/convert.hpp"
-#include "qwqdsp/oscillator/mcf_sine_osc.hpp"
 
 PluginUi::PluginUi(SteepFlangerAudioProcessor& p)
     : p_(p)
