@@ -39,13 +39,13 @@ jobs:
             os: ubuntu-22.04
             pluginval-binary: ./pluginval
             artifact_name: plugin-linux
-          - name: macOS-Intel
-            os: macos-13
+          - name: macOS-x86
+            os: macos-latest
             macos_arch: x86_64
             pluginval-binary: pluginval.app/Contents/MacOS/pluginval
             artifact_name: plugin-macos-intel
-          - name: macOS-ARM
-            os: macos-14
+          - name: macOS-arm
+            os: macos-latest
             macos_arch: arm64
             pluginval-binary: pluginval.app/Contents/MacOS/pluginval
             artifact_name: plugin-macos-arm
