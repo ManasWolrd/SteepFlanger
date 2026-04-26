@@ -3,6 +3,7 @@
 #include <complex>
 #include <numbers>
 #include <atomic>
+#include <juce_core/juce_core.h>
 #include <qwqdsp/misc/smoother.hpp>
 #include <qwqdsp/oscillator/vic_sine_osc.hpp>
 #include "com/iirn_filter.hpp"
@@ -40,6 +41,7 @@ struct DspParam {
 
     std::atomic<bool> should_update_fir_; // tell flanger to update coeffs
     std::atomic<FirSource> fir_source;
+    juce::SpinLock custom_coeffs_lock_;
     std::array<float, global::kMaxCoeffLen> custom_coeffs_{};
     std::array<float, global::kMaxCoeffLen> custom_spectral_gains{};
 
@@ -79,6 +81,7 @@ struct DspState {
     DspStateN<simd::Float128> lane4;
     DspStateN<simd::Float256> lane8;
 
+    juce::SpinLock coeffs_lock_;
     simd::Array256<float, global::kSIMDMaxCoeffLen> coeffs_{};
     simd::Array256<float, global::kSIMDMaxCoeffLen> last_coeffs_{};
     

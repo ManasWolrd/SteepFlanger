@@ -52,12 +52,20 @@ void SpectralView::paint(juce::Graphics& g) {
 
     // 绘制自定义频谱
     if (time_.display_waveform_) {
+        std::array<float, global::kMaxCoeffLen> custom_spectral_snapshot{};
+        {
+            juce::SpinLock::ScopedLockType lock(time_.p_.dsp_state_.param.custom_coeffs_lock_);
+            std::copy_n(time_.p_.dsp_state_.param.custom_spectral_gains.begin(),
+                        global::kMaxCoeffLen,
+                        custom_spectral_snapshot.begin());
+        }
+
         g.setColour(ui::active_bg);
-        lasty = juce::jmap(time_.p_.dsp_state_.param.custom_spectral_gains[0], bf.getBottom(), bf.getY());
+        lasty = juce::jmap(custom_spectral_snapshot[0], bf.getBottom(), bf.getY());
         lastx = bf.getX();
         for (int x = 0; x < b.getWidth(); ++x) {
             size_t const idx = static_cast<size_t>(static_cast<float>(static_cast<float>(x) * fcoeff_len) / static_cast<float>(b.getWidth()));
-            float const val = time_.p_.dsp_state_.param.custom_spectral_gains[idx];
+            float const val = custom_spectral_snapshot[idx];
             float const y = juce::jmap(val, bf.getBottom(), bf.getY());
             float const xx = static_cast<float>(x) + bf.getX();
             g.drawLine(lastx, lasty, xx, y);
@@ -106,14 +114,22 @@ void SpectralView::mouseDrag(const juce::MouseEvent& e) {
         val = 0;
     }
     
-    time_.p_.dsp_state_.param.custom_spectral_gains[idx] = val;
+    std::array<float, global::kMaxCoeffLen> custom_spectral_gains_snapshot{};
+    {
+        juce::SpinLock::ScopedLockType lock(time_.p_.dsp_state_.param.custom_coeffs_lock_);
+        std::copy_n(time_.p_.dsp_state_.param.custom_spectral_gains.begin(),
+                    global::kMaxCoeffLen,
+                    custom_spectral_gains_snapshot.begin());
+        custom_spectral_gains_snapshot[idx] = val;
+    }
 
     // 加法合成
     std::array<qwqdsp_oscillator::MCFSineOsc, global::kMaxCoeffLen> oscs;
     std::array<float, global::kMaxCoeffLen> true_gains;
+    std::array<float, global::kMaxCoeffLen> custom_coeffs_snapshot{};
     for (size_t i = 0; i < coeff_len; ++i) {
         oscs[i].Reset(static_cast<float>(i) * std::numbers::pi_v<float> / fcoeff_len, 0.0f);
-        float const db = std::lerp(-101.0f, 0.0f, time_.p_.dsp_state_.param.custom_spectral_gains[i]);
+        float const db = std::lerp(-101.0f, 0.0f, custom_spectral_gains_snapshot[i]);
         if (db < -100.0f) {
             true_gains[i] = 0;
         }
@@ -128,7 +144,17 @@ void SpectralView::mouseDrag(const juce::MouseEvent& e) {
             sum += true_gains[fidx] * oscs[fidx].Tick();
         }
         time_.coeff_buffer_[tidx] = sum;
-        time_.p_.dsp_state_.param.custom_coeffs_[tidx] = sum;
+        custom_coeffs_snapshot[tidx] = sum;
+    }
+
+    {
+        juce::SpinLock::ScopedLockType lock(time_.p_.dsp_state_.param.custom_coeffs_lock_);
+        std::copy_n(custom_spectral_gains_snapshot.begin(),
+                    global::kMaxCoeffLen,
+                    time_.p_.dsp_state_.param.custom_spectral_gains.begin());
+        std::copy_n(custom_coeffs_snapshot.begin(),
+                    coeff_len,
+                    time_.p_.dsp_state_.param.custom_coeffs_.begin());
     }
 
     UpdateGui();

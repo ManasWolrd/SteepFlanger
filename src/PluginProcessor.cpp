@@ -425,6 +425,7 @@ void SteepFlangerAudioProcessor::getStateInformation (juce::MemoryBlock& destDat
     suspendProcessing(true);
     auto& dsp_param_ = dsp_state_.param;
 
+    const juce::SpinLock::ScopedLockType lock(dsp_state_.param.custom_coeffs_lock_);
     juce::ValueTree data{"DATA"};
     for (size_t i = 0; i < global::kMaxCoeffLen; ++i) {
         data.appendChild({
@@ -468,6 +469,7 @@ void SteepFlangerAudioProcessor::setStateInformation (const void* data, int size
         if (custom_coeffs.isValid()) {
             auto data_sections = custom_coeffs.getChildWithName("DATA");
             if (data_sections.isValid()) {
+                const juce::SpinLock::ScopedLockType lock(dsp_state_.param.custom_coeffs_lock_);
                 std::fill_n(dsp_state_.param.custom_coeffs_.begin(), global::kMaxCoeffLen, 0.0f);
                 std::fill_n(dsp_state_.param.custom_spectral_gains.begin(), global::kMaxCoeffLen, 0.0f);
                 for (size_t i = 0; auto item : data_sections) {

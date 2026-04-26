@@ -16,6 +16,8 @@ static void UpdateFirCoeff(dsp::DspState& state) noexcept {
     size_t coeff_len = static_cast<size_t>(param.fir_coeff_len);
     state.coeff_len_ = coeff_len;
 
+    juce::SpinLock::ScopedLockType coeffs_lock(state.coeffs_lock_);
+
     if (param.fir_source == DspParam::kWindowSinc) {
         std::span<float> kernel{state.coeffs_.data(), coeff_len};
         float const cutoff_w = param.fir_cutoff;
@@ -29,6 +31,7 @@ static void UpdateFirCoeff(dsp::DspState& state) noexcept {
         qwqdsp_window::Kaiser::ApplyWindow(kernel, beta, false);
     }
     else {
+        juce::SpinLock::ScopedLockType custom_coeffs_lock(param.custom_coeffs_lock_);
         std::copy_n(param.custom_coeffs_.begin(), coeff_len, state.coeffs_.begin());
     }
 

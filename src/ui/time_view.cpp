@@ -3,7 +3,10 @@
 #include "plugin_ui.hpp"
 
 void TimeView::UpdateGui() {
-    std::ranges::copy(p_.dsp_state_.coeffs_, coeff_buffer_.begin());
+    {
+        const juce::SpinLock::ScopedLockType lock(p_.dsp_state_.coeffs_lock_);
+        std::ranges::copy(p_.dsp_state_.coeffs_, coeff_buffer_.begin());
+    }
     int curr_coeff_len = p_.param_fir_coeff_len_->get();
     if (curr_coeff_len != 0) {
         coeff_buffer_[curr_coeff_len] = coeff_buffer_[curr_coeff_len - 1];
@@ -38,6 +41,7 @@ void TimeView::paint(juce::Graphics& g) {
     }
 
     if (display_waveform_) {
+        const juce::SpinLock::ScopedLockType lock(p_.dsp_state_.param.custom_coeffs_lock_);
         // 绘制自定义波形
         g.setColour(ui::active_bg);
         lasty = juce::jmap(p_.dsp_state_.param.custom_coeffs_[0], -1.0f, 1.0f, bf.getBottom(), bf.getY());
@@ -78,7 +82,10 @@ void TimeView::mouseDrag(const juce::MouseEvent& e) {
     }
 
     coeff_buffer_[idx] = val;
-    p_.dsp_state_.param.custom_coeffs_[idx] = val;
+    {
+        const juce::SpinLock::ScopedLockType lock(p_.dsp_state_.param.custom_coeffs_lock_);
+        p_.dsp_state_.param.custom_coeffs_[idx] = val;
+    }
 
     repaint();
     if (auto* parent = getParentComponent(); parent != nullptr) {
@@ -106,12 +113,15 @@ void TimeView::SendCoeffs() {
 }
 
 void TimeView::CopyCoeffesToCustom() {
+    const juce::SpinLock::ScopedLockType coeff_lock(p_.dsp_state_.coeffs_lock_);
+    const juce::SpinLock::ScopedLockType custom_lock(p_.dsp_state_.param.custom_coeffs_lock_);
     std::ranges::copy(p_.dsp_state_.coeffs_, p_.dsp_state_.param.custom_coeffs_.begin());
     std::ranges::copy(p_.dsp_state_.param.custom_coeffs_, coeff_buffer_.begin());
     repaint();
 }
 
 void TimeView::ClearCustomCoeffs() {
+    const juce::SpinLock::ScopedLockType lock(p_.dsp_state_.param.custom_coeffs_lock_);
     std::ranges::fill(p_.dsp_state_.param.custom_coeffs_, float{});
     repaint();
 }
