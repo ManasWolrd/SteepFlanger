@@ -94,7 +94,13 @@ static void UpdateFirCoeff(dsp::DspState& state) noexcept {
     for (auto x : kernel) {
         energy += x * x;
     }
-    state.fir_gain_ = 1.0f / std::sqrt(energy + 1e-10f);
+
+    if (max_spectral_gain < 1e-10f) {
+        state.fir_gain_ = 1.0f;
+    }
+    else {
+        state.fir_gain_ = 1.0f / std::sqrt(energy + 1e-10f);
+    }
 
     state.have_new_coeff_ = true;
 }
