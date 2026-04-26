@@ -163,6 +163,7 @@ else()
     if (UNIX)
         set(IPP_DIR "/opt/intel/oneapi/ipp/latest/lib/cmake/ipp")
     endif()
+    set(IPP_SHARED OFF)
     find_package(IPP QUIET)
 
     if(NOT IPP_FOUND)
