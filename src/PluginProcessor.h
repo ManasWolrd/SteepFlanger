@@ -78,6 +78,7 @@ public:
     pluginshared::BpmSyncLFO delay_lfo_state_;
     pluginshared::BpmSyncLFO barber_lfo_state_;
 
+    bool display_custom_{true};
 private:
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SteepFlangerAudioProcessor)

@@ -92,7 +92,8 @@ PluginUi::PluginUi(SteepFlangerAudioProcessor& p)
 
     setSize(520, 265);
     iir_mode_.onClick();
-    display_custom_.onClick();
+    display_custom_.setToggleState(p.display_custom_, juce::sendNotificationSync);
+    UpdateGui();
     startTimerHz(30);
 }
 
