@@ -651,6 +651,12 @@ static void Reset(dsp::DspState& state) noexcept {
     for (size_t i = 0; i < global::kIirMaxNumFilters / 4; ++i) {
         self.iir_[i].Reset();
     }
+
+    state.last_damp_lowpass_coeff_ = state.damp_lowpass_coeff_;
+    state.iir_x_delay_.Reset();
+    state.phase_ = 0;
+    state.barber_phase_smoother_.Reset();
+    state.barber_oscillator_.Reset();
 }
 
 static void Update(dsp::DspState& state, const dsp::DspParam& param) noexcept {}
