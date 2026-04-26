@@ -10,6 +10,15 @@ on:
     tags:
       - "v*"
 
+env:
+  BUILD_TYPE: Release
+  BUILD_DIR: Builds
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  DISPLAY: :0 # linux pluginval needs this
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
+  SCCACHE_GHA_ENABLED: true
+  SCCACHE_CACHE_MULTIARCH: 1
+
 jobs:
   build:
     name: build-${{ matrix.name }}
@@ -21,9 +30,14 @@ jobs:
           - name: Windows
             os: windows-2022
             artifact_name: plugin-win
-          - name: macOS
+          - name: macOS-x86
             os: macos-latest
-            artifact_name: plugin-macos
+            macos_arch: x86_64
+            artifact_name: plugin-macos-x64
+          - name: macOS-arm
+            os: macos-latest
+            macos_arch: arm64
+            artifact_name: plugin-macos-arm64
           - name: Linux
             os: ubuntu-22.04
             artifact_name: plugin-linux
@@ -74,7 +88,7 @@ jobs:
       - name: Generate Build Files (macOS)
         if: runner.os == 'macOS'
         run: |
-          cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DBUILD_STANDALONE=OFF -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DCPP_SIMD_DETECTOR_BUILD_EXAMPLES=OFF -DIPP_SHARED=OFF -DBUILD_IN_CI=1 -S . -B ./build
+          cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DBUILD_STANDALONE=OFF -DCMAKE_OSX_ARCHITECTURES="${{ matrix.macos_arch }}" -DCPP_SIMD_DETECTOR_BUILD_EXAMPLES=OFF -DIPP_SHARED=OFF -DBUILD_IN_CI=1 -S . -B ./build
 
       - name: Generate Build Files (Linux)
         if: runner.os == 'Linux'
@@ -138,11 +152,17 @@ jobs:
           name: plugin-win
           path: artifacts/plugin-win
 
-      - name: Download macOS artifact
+      - name: Download macOS x64 artifact
         uses: actions/download-artifact@v4
         with:
-          name: plugin-macos
-          path: artifacts/plugin-macos
+          name: plugin-macos-x64
+          path: artifacts/plugin-macos-x64
+
+      - name: Download macOS ARM64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: plugin-macos-arm64
+          path: artifacts/plugin-macos-arm64
 
       - name: Download Linux artifact
         uses: actions/download-artifact@v4
@@ -155,7 +175,8 @@ jobs:
           TAG_NAME=${GITHUB_REF#refs/tags/}
           REPO_NAME="${{ github.event.repository.name }}"
 
-          MAC_RELEASE_DIR=$(find $GITHUB_WORKSPACE/artifacts/plugin-macos -type d -name "Release" | head -n 1)
+          MAC_X64_RELEASE_DIR=$(find $GITHUB_WORKSPACE/artifacts/plugin-macos-x64 -type d -name "Release" | head -n 1)
+          MAC_ARM64_RELEASE_DIR=$(find $GITHUB_WORKSPACE/artifacts/plugin-macos-arm64 -type d -name "Release" | head -n 1)
           WIN_RELEASE_DIR=$(find $GITHUB_WORKSPACE/artifacts/plugin-win -type d -name "Release" | head -n 1)
           LINUX_RELEASE_DIR=$(find $GITHUB_WORKSPACE/artifacts/plugin-linux -type d -name "Release" | head -n 1)
 
@@ -165,9 +186,13 @@ jobs:
           zip -r "${REPO_NAME}-win-${TAG_NAME}.zip" .
           cp "${REPO_NAME}-win-${TAG_NAME}.zip" "$DEST_DIR/"
 
-          cd "$MAC_RELEASE_DIR"
-          zip -r "${REPO_NAME}-macos-${TAG_NAME}.zip" .
-          cp "${REPO_NAME}-macos-${TAG_NAME}.zip" "$DEST_DIR/"
+          cd "$MAC_X64_RELEASE_DIR"
+          zip -r "${REPO_NAME}-macos-x64-${TAG_NAME}.zip" .
+          cp "${REPO_NAME}-macos-x64-${TAG_NAME}.zip" "$DEST_DIR/"
+
+          cd "$MAC_ARM64_RELEASE_DIR"
+          zip -r "${REPO_NAME}-macos-arm64-${TAG_NAME}.zip" .
+          cp "${REPO_NAME}-macos-arm64-${TAG_NAME}.zip" "$DEST_DIR/"
 
           cd "$LINUX_RELEASE_DIR"
           zip -r "${REPO_NAME}-linux-${TAG_NAME}.zip" .
