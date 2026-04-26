@@ -155,7 +155,6 @@ jobs:
           format: YYYYMMDD
 
       - name: Run Pluginval Validation
-        continue-on-error: true
         shell: bash
         run: |
           TEST_TARGET="${{ env.VST3_PATH }}"
@@ -172,7 +171,6 @@ jobs:
           TIMEOUT_MS: 300000
 
       - name: Pluginval AU validations (macOS)
-        continue-on-error: true
         if: runner.os == 'macOS'
         shell: bash
         run: |
@@ -202,7 +200,6 @@ jobs:
           RANDOM_SEED: "${{ steps.current-time.outputs.formattedTime }}"
 
       - name: AU Validation with auval (macOS)
-        continue-on-error: true
         if: runner.os == 'macOS'
         shell: bash
         run: |
