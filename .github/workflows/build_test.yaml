@@ -39,10 +39,16 @@ jobs:
             os: ubuntu-22.04
             pluginval-binary: ./pluginval
             artifact_name: plugin-linux
-          - name: macOS
-            os: macos-latest
+          - name: macOS-Intel
+            os: macos-13
+            macos_arch: x86_64
             pluginval-binary: pluginval.app/Contents/MacOS/pluginval
-            artifact_name: plugin-macos
+            artifact_name: plugin-macos-intel
+          - name: macOS-ARM
+            os: macos-14
+            macos_arch: arm64
+            pluginval-binary: pluginval.app/Contents/MacOS/pluginval
+            artifact_name: plugin-macos-arm
           - name: Windows
             os: windows-latest
             wix_arch: x64
@@ -106,7 +112,7 @@ jobs:
       - name: Build (MacOS)
         if: runner.os == 'macOS'
         run: |
-          cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DBUILD_STANDALONE=OFF -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DCPP_SIMD_DETECTOR_BUILD_EXAMPLES=OFF -DIPP_SHARED=OFF -DBUILD_IN_CI=1 -S . -B ./build
+          cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DBUILD_STANDALONE=OFF -DCMAKE_OSX_ARCHITECTURES="${{ matrix.macos_arch }}" -DCPP_SIMD_DETECTOR_BUILD_EXAMPLES=OFF -DIPP_SHARED=OFF -DBUILD_IN_CI=1 -S . -B ./build
           cmake --build ./build --config Release
 
       - name: Build (Linux)
