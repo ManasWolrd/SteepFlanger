@@ -416,7 +416,8 @@ bool SteepFlangerAudioProcessor::hasEditor() const
 
 juce::AudioProcessorEditor* SteepFlangerAudioProcessor::createEditor()
 {
-    return new EmptyAudioProcessorEditor (*this);
+    // return new EmptyAudioProcessorEditor (*this);
+    return new juce::GenericAudioProcessorEditor(*this);
 }
 
 //==============================================================================
