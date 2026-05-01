@@ -1,5 +1,6 @@
 #include "plugin_ui.hpp"
 #include "../PluginProcessor.h"
+#include "../PluginEditor.h"
 
 PluginUi::PluginUi(SteepFlangerAudioProcessor& p)
     : p_(p)
@@ -93,7 +94,9 @@ PluginUi::PluginUi(SteepFlangerAudioProcessor& p)
     startTimerHz(30);
 }
 
-PluginUi::~PluginUi() {}
+PluginUi::~PluginUi() {
+    stopTimer();
+}
 
 //==============================================================================
 void PluginUi::paint(juce::Graphics& g) {
@@ -201,7 +204,13 @@ void PluginUi::SetIirMode(bool is_iir) {
 
     coeff_len_.label.setText(is_iir ? "N.filter" : "steep", juce::dontSendNotification);
     side_lobe_.label.setText(is_iir ? "ripple" : "sidelobe", juce::dontSendNotification);
-    
+
     spectralview_.SetIir(is_iir);
     spectralview_.DrawIirResponce();
+}
+
+void PluginUi::TrySetSize(int width, int height) {
+    auto* p = findParentComponentOfClass<EmptyAudioProcessorEditor>();
+    jassert(p != nullptr);
+    p->SetChildSize(width, height);
 }

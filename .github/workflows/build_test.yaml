@@ -116,7 +116,7 @@ jobs:
       - name: Build (MacOS)
         if: runner.os == 'macOS'
         run: |
-          cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DBUILD_STANDALONE=OFF -DCMAKE_OSX_ARCHITECTURES="${{ matrix.macos_arch }}" -DCPP_SIMD_DETECTOR_BUILD_EXAMPLES=OFF -DIPP_SHARED=OFF -DBUILD_IN_CI=1 -S . -B ./build
+          cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET="10.15" -DBUILD_STANDALONE=OFF -DCMAKE_OSX_ARCHITECTURES="${{ matrix.macos_arch }}" -DCPP_SIMD_DETECTOR_BUILD_EXAMPLES=OFF -DIPP_SHARED=OFF -DBUILD_IN_CI=1 -S . -B ./build
           cmake --build ./build --config Release
 
       - name: Build (Linux)

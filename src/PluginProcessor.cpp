@@ -363,7 +363,8 @@ bool SteepFlangerAudioProcessor::isBusesLayoutSupported (const BusesLayout& layo
 void SteepFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                               juce::MidiBuffer& midiMessages)
 {
-    std::ignore = midiMessages;
+    if (!dsp_processor_.IsValid()) return;
+
     juce::ScopedNoDenormals noDenormals;
     param_listener_.HandleDirty();
 
@@ -486,6 +487,7 @@ void SteepFlangerAudioProcessor::setStateInformation (const void* data, int size
         }
     }
 
+    reset();
     suspendProcessing(false);
 }
 

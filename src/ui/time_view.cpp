@@ -88,21 +88,21 @@ void TimeView::mouseDrag(const juce::MouseEvent& e) {
     }
 
     repaint();
-    if (auto* parent = getParentComponent(); parent != nullptr) {
-        static_cast<PluginUi*>(parent)->UpdateGuiFromTimeView();
+    if (auto* parent = findParentComponentOfClass<PluginUi>(); parent != nullptr) {
+        parent->UpdateGuiFromTimeView();
     }
 }
 
 void TimeView::RepaintTimeAndSpectralView() {
     repaint();
-    if (auto* parent = getParentComponent(); parent != nullptr) {
-        static_cast<PluginUi*>(parent)->repaint();
+    if (auto* parent = findParentComponentOfClass<PluginUi>(); parent != nullptr) {
+        parent->repaint();
     }
 }
 
 void TimeView::mouseUp(const juce::MouseEvent& e) {
     if (!display_waveform_) return;
-    
+
     std::ignore = e;
     SendCoeffs();
 }

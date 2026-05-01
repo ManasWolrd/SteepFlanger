@@ -28,13 +28,8 @@ public:
     }
 
     void timerCallback() override;
-    std::function<void(int, int)> on_want_new_size;
 private:
-    void TrySetSize(int width, int height) {
-        if (on_want_new_size) {
-            on_want_new_size(width, height);
-        }
-    }
+    void TrySetSize(int width, int height);
 
     void SetIirMode(bool is_iir);
 

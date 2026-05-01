@@ -70,7 +70,7 @@ struct DspStateN {
     // ----------------------------------------
     pluginshared::dsp::DelayLineSingleChannelMultiTime<SimdT> delay_left_;
     pluginshared::dsp::DelayLineSingleChannelMultiTime<SimdT> delay_right_;
-    
+
     // ----------------------------------------
     // iir part
     // ----------------------------------------
@@ -84,7 +84,7 @@ struct DspState {
     juce::SpinLock coeffs_lock_;
     simd::Array256<float, global::kSIMDMaxCoeffLen> coeffs_{};
     simd::Array256<float, global::kSIMDMaxCoeffLen> last_coeffs_{};
-    
+
     DspParam param{};
     std::atomic<bool> have_new_coeff_{}; // dsp_processor just update it's fir coeff
     audiofft::AudioFFTcpx complex_fft_;
@@ -118,8 +118,8 @@ struct DspState {
     pluginshared::dsp::StereoIIRHilbertDeeperCpx hilbert_complex_;
     qwqdsp_misc::ExpSmoother barber_phase_smoother_;
     qwqdsp_oscillator::VicSineOsc barber_oscillator_;
-    size_t barber_osc_keep_amp_counter_{};
-    size_t barber_osc_keep_amp_need_{};
+    int barber_osc_keep_amp_counter_{};
+    int barber_osc_keep_amp_need_{};
 };
 
 struct DspProcessor {

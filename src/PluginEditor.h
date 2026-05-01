@@ -5,14 +5,17 @@
 //==============================================================================
 class EmptyAudioProcessorEditor final : public juce::AudioProcessorEditor {
 public:
-    explicit EmptyAudioProcessorEditor (SteepFlangerAudioProcessor&);
+    explicit EmptyAudioProcessorEditor(SteepFlangerAudioProcessor&);
     ~EmptyAudioProcessorEditor() override;
 
     //==============================================================================
-    void paint (juce::Graphics&) override;
+    void paint(juce::Graphics&) override;
     void resized() override;
 
 private:
+    friend class PluginUi;
+    void SetChildSize(int w, int h);
+
     PluginUi ui_;
     float scale_{1.0f};
     int ui_width_{};
@@ -21,5 +24,5 @@ private:
     struct PluginConfig;
     juce::SharedResourcePointer<PluginConfig> plugin_config_;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EmptyAudioProcessorEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(EmptyAudioProcessorEditor)
 };
