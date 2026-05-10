@@ -233,14 +233,15 @@ SteepFlangerAudioProcessor::SteepFlangerAudioProcessor()
         global::kPluginRepoOwnerName, global::kPluginRepoName
     });
     preset_manager_->AddFactoryPreset(BinaryData::Flanger_xml, BinaryData::Flanger_xmlSize, "Flanger");
-    preset_manager_->AddFactoryPreset(BinaryData::BarberpoleFlanger_xml, BinaryData::BarberpoleFlanger_xmlSize, "BarberpoleFlanger");
-    preset_manager_->AddFactoryPreset(BinaryData::HearyBarberpole_xml, BinaryData::HearyBarberpole_xmlSize, "HearyBarberpole");
-    preset_manager_->AddFactoryPreset(BinaryData::IIRFlanger_xml, BinaryData::IIRFlanger_xmlSize, "IIRFlanger");
-    preset_manager_->AddFactoryPreset(BinaryData::IIRBarberpole_xml, BinaryData::IIRBarberpole_xmlSize, "IIRBarberpole");
-    preset_manager_->AddFactoryPreset(BinaryData::metallic_resonace_xml, BinaryData::metallic_resonace_xmlSize, "MetallicResponce");
+    preset_manager_->AddFactoryPreset(BinaryData::BarberpoleFlanger_xml, BinaryData::BarberpoleFlanger_xmlSize, "Barberpole Flanger");
+    preset_manager_->AddFactoryPreset(BinaryData::HeavyBarberpole_xml, BinaryData::HeavyBarberpole_xmlSize, "Heary Barberpole");
+    preset_manager_->AddFactoryPreset(BinaryData::IIRFlanger_xml, BinaryData::IIRFlanger_xmlSize, "IIR Flanger");
+    preset_manager_->AddFactoryPreset(BinaryData::IIRBarberpole_xml, BinaryData::IIRBarberpole_xmlSize, "IIR Barberpole");
+    preset_manager_->AddFactoryPreset(BinaryData::FIRResonator_xml, BinaryData::FIRResonator_xmlSize, "FIR Resonator");
+    preset_manager_->AddFactoryPreset(BinaryData::IIRResonator_xml, BinaryData::IIRResonator_xmlSize, "IIR Resonator");
     preset_manager_->AddFactoryPreset(BinaryData::wormhole_robot_xml, BinaryData::wormhole_robot_xmlSize, "WormholeRobot");
     preset_manager_->AddFactoryPreset(BinaryData::YOIuse_cutoff_xml, BinaryData::YOIuse_cutoff_xmlSize, "YOI(use cutoff)");
-    preset_manager_->AddFactoryPreset(BinaryData::dispersion_voice_xml, BinaryData::dispersion_voice_xmlSize, "DispersionVoice");
+    preset_manager_->AddFactoryPreset(BinaryData::dispersion_voice_xml, BinaryData::dispersion_voice_xmlSize, "Dispersion Voice");
 }
 
 SteepFlangerAudioProcessor::~SteepFlangerAudioProcessor()
