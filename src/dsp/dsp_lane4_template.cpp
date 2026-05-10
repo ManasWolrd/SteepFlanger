@@ -151,6 +151,9 @@ static void UpdateIirCoeff(dsp::DspState& state) noexcept {
         }
     }
 
+    float reduce_g = std::pow(10.0f, -param.ripple / 20.0f);
+    k *= reduce_g;
+
     // 双线性变换
     std::complex<double> half_zpoles[global::kIirMaxNumFilters];
     for (int i = 0; i < N; ++i) {

@@ -199,7 +199,7 @@ void SpectralView::DrawIir(juce::Graphics& g) {
     float const wc = std::tan(std::clamp(cutoff_w, 1.0e-4f, std::numbers::pi_v<float> - 1.0e-4f) * 0.5f);
     float const ripple_db = std::max(ripple_, 0.001f);
     float const epsilon = std::sqrt(std::pow(10.0f, ripple_db * 0.1f) - 1.0f);
-    float const g_mul = std::pow(10.0f, ripple_db * 0.05f);
+    float const g_mul = std::pow(10.0f, ripple_db * 0.05f * 0.5f);
     int const order = std::max(1, nfilter_ * 2);
 
     g.setColour(ui::line_fore);
