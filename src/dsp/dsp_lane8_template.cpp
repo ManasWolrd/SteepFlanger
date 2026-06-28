@@ -133,45 +133,48 @@ static void UpdateIirCoeff(dsp::DspState& state) noexcept {
 
     // s域
     double k = 1.0;
-    std::complex<double> half_spoles[global::kIirMaxNumFilters];
-    if (!param.fir_highpass) {
-        for (int i = 0; i < N; ++i) {
-            double phi =
-                (2.0 * static_cast<double>(i + 1) - 1.0) * std::numbers::pi_v<double> / static_cast<double>(4 * N);
-            half_spoles[i] = cutoff * std::complex{k_re * -std::sin(phi), k_im * std::cos(phi)};
-            k *= std::norm(half_spoles[i]);
-        }
-    }
-    else {
-        for (int i = 0; i < N; ++i) {
-            double phi =
-                (2.0 * static_cast<double>(i + 1) - 1.0) * std::numbers::pi_v<double> / static_cast<double>(4 * N);
-            auto pole = std::complex{k_re * -std::sin(phi), k_im * std::cos(phi)};
-            half_spoles[i] = cutoff / pole;
-        }
-    }
-
-    float reduce_g = std::pow(10.0f, -param.ripple / 40.0f);
-    k *= reduce_g;
-
-    // 双线性变换
     std::complex<double> half_zpoles[global::kIirMaxNumFilters];
-    for (int i = 0; i < N; ++i) {
-        half_zpoles[i] = (1.0 + half_spoles[i]) / (1.0 - half_spoles[i]);
-        k /= std::real((1.0 - half_spoles[i]) * (1.0 - std::conj(half_spoles[i])));
+    {
+        std::complex<double> half_spoles[global::kIirMaxNumFilters];
+        if (!param.fir_highpass) {
+            for (int i = 0; i < N; ++i) {
+                double phi =
+                    (2.0 * static_cast<double>(i + 1) - 1.0) * std::numbers::pi_v<double> / static_cast<double>(4 * N);
+                half_spoles[i] = cutoff * std::complex{k_re * -std::sin(phi), k_im * std::cos(phi)};
+                k *= std::norm(half_spoles[i]);
+            }
+        }
+        else {
+            for (int i = 0; i < N; ++i) {
+                double phi =
+                    (2.0 * static_cast<double>(i + 1) - 1.0) * std::numbers::pi_v<double> / static_cast<double>(4 * N);
+                auto pole = std::complex{k_re * -std::sin(phi), k_im * std::cos(phi)};
+                half_spoles[i] = cutoff / pole;
+            }
+        }
+
+        float reduce_g = std::pow(10.0f, -param.ripple / 40.0f);
+        k *= reduce_g;
+
+        // 双线性变换
+        for (int i = 0; i < N; ++i) {
+            half_zpoles[i] = (1.0 + half_spoles[i]) / (1.0 - half_spoles[i]);
+            k /= std::real((1.0 - half_spoles[i]) * (1.0 - std::conj(half_spoles[i])));
+        }
     }
 
     // 部分分式分解
     std::complex<double> residual[global::kIirMaxNumFilters];
+    double zero = -1.0;
+    if (param.fir_highpass) {
+        zero = 1.0;
+    }
     for (int i = 0; i < N; ++i) {
         auto zpole = half_zpoles[i];
 
         std::complex<double> up = 1.0;
-        std::complex<double> tmp_up = zpole + 1.0;
-        if (param.fir_highpass) {
-            tmp_up = zpole - 1.0;
-        }
         for (int j = 0; j < N; ++j) {
+            auto tmp_up = 1.0 - zero / zpole;
             up *= tmp_up;
             up *= tmp_up;
         }
@@ -179,15 +182,24 @@ static void UpdateIirCoeff(dsp::DspState& state) noexcept {
         std::complex<double> down = 1.0;
         for (int j = 0; j < N; ++j) {
             if (i == j) {
-                down *= (zpole - std::conj(half_zpoles[j]));
+                down *= (1.0 - std::conj(half_zpoles[j]) / zpole);
             }
             else {
-                down *= (zpole - half_zpoles[j]);
-                down *= (zpole - std::conj(half_zpoles[j]));
+                down *= (1.0 - half_zpoles[j] / zpole);
+                down *= (1.0 - std::conj(half_zpoles[j]) / zpole);
             }
         }
 
-        residual[i] = up / down;
+        residual[i] = k * up / down;
+    }
+
+    {
+        std::complex<double> down = 1.0;
+        for (int i = 0; i < N; ++i) {
+            down *= (0.0 - half_zpoles[i]);
+            down *= (0.0 - std::conj(half_zpoles[i]));
+        }
+        state.iir_fir_k_ = static_cast<float>(k * std::real(1.0 / down));
     }
 
     // 设定滤波器系数
@@ -199,16 +211,16 @@ static void UpdateIirCoeff(dsp::DspState& state) noexcept {
 
     for (int i = 0; i < full_8_num; ++i) {
         simd::Float256 r_re{
-            static_cast<float>(2 * k * residual_ptr[0].real()), static_cast<float>(2 * k * residual_ptr[1].real()),
-            static_cast<float>(2 * k * residual_ptr[2].real()), static_cast<float>(2 * k * residual_ptr[3].real()),
-            static_cast<float>(2 * k * residual_ptr[4].real()), static_cast<float>(2 * k * residual_ptr[5].real()),
-            static_cast<float>(2 * k * residual_ptr[6].real()), static_cast<float>(2 * k * residual_ptr[7].real()),
+            static_cast<float>(2 * residual_ptr[0].real()), static_cast<float>(2 * residual_ptr[1].real()),
+            static_cast<float>(2 * residual_ptr[2].real()), static_cast<float>(2 * residual_ptr[3].real()),
+            static_cast<float>(2 * residual_ptr[4].real()), static_cast<float>(2 * residual_ptr[5].real()),
+            static_cast<float>(2 * residual_ptr[6].real()), static_cast<float>(2 * residual_ptr[7].real()),
         };
         simd::Float256 r_im{
-            static_cast<float>(2 * k * residual_ptr[0].imag()), static_cast<float>(2 * k * residual_ptr[1].imag()),
-            static_cast<float>(2 * k * residual_ptr[2].imag()), static_cast<float>(2 * k * residual_ptr[3].imag()),
-            static_cast<float>(2 * k * residual_ptr[4].imag()), static_cast<float>(2 * k * residual_ptr[5].imag()),
-            static_cast<float>(2 * k * residual_ptr[6].imag()), static_cast<float>(2 * k * residual_ptr[7].imag()),
+            static_cast<float>(2 * residual_ptr[0].imag()), static_cast<float>(2 * residual_ptr[1].imag()),
+            static_cast<float>(2 * residual_ptr[2].imag()), static_cast<float>(2 * residual_ptr[3].imag()),
+            static_cast<float>(2 * residual_ptr[4].imag()), static_cast<float>(2 * residual_ptr[5].imag()),
+            static_cast<float>(2 * residual_ptr[6].imag()), static_cast<float>(2 * residual_ptr[7].imag()),
         };
         simd::Float256 p_re{
             static_cast<float>(std::real(pole_ptr[0])), static_cast<float>(std::real(pole_ptr[1])),
@@ -234,15 +246,13 @@ static void UpdateIirCoeff(dsp::DspState& state) noexcept {
         simd::Float256 p_re{};
         simd::Float256 p_im{};
         for (int i = 0; i < residual_8_num; ++i) {
-            r_re[i] = static_cast<float>(2 * k * residual_ptr[i].real());
-            r_im[i] = static_cast<float>(2 * k * residual_ptr[i].imag());
+            r_re[i] = static_cast<float>(2 * residual_ptr[i].real());
+            r_im[i] = static_cast<float>(2 * residual_ptr[i].imag());
             p_re[i] = static_cast<float>(std::real(pole_ptr[i]));
             p_im[i] = static_cast<float>(std::imag(pole_ptr[i]));
         }
         filters[full_8_num].Set(simd::Complex256{r_re, r_im}, simd::Complex256{p_re, p_im});
     }
-
-    state.iir_fir_k_ = static_cast<float>(k);
 }
 
 static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_samples) noexcept {
@@ -477,7 +487,7 @@ static void ProcessFir(dsp::DspState& state, float* left, float* right, int num_
                     right_rotation_coeff *= right_rotation_mul;
                 }
 
-                auto remove_positive_spectrum = state.hilbert_complex_.Tick(
+                auto remove_positive_spectrum = self.hilbert_complex_.Tick(
                     simd::Float128{simd::ReduceAdd(left_re_sum), simd::ReduceAdd(left_im_sum),
                                    simd::ReduceAdd(right_re_sum), simd::ReduceAdd(right_im_sum)});
                 // this will mirror the positive spectrum to negative domain, forming a real value signal
@@ -575,14 +585,11 @@ static void ProcessIir(dsp::DspState& state, float* left, float* right, int num_
 
                 float right_sum = left_in * state.iir_fir_k_;
                 float left_sum = right_in * state.iir_fir_k_;
-                float x_left = state.iir_x_delay_.GetBeforePush<0>(left_num_notch);
-                float x_right = state.iir_x_delay_.GetBeforePush<1>(right_num_notch);
                 for (size_t i = 0; i < num_simd_filter; ++i) {
-                    auto [l, r] = filters[i].Tick(x_left, x_right, left_num_notch, left_num_notch);
+                    auto [l, r] = filters[i].Tick(left_in, right_in, left_num_notch, right_num_notch);
                     left_sum += l;
                     right_sum += r;
                 }
-                state.iir_x_delay_.Push(left_in, right_in);
 
                 *left = left_sum * wet_mix + left_in * dry_mix;
                 *right = right_sum * wet_mix + right_in * dry_mix;
@@ -603,8 +610,6 @@ static void ProcessIir(dsp::DspState& state, float* left, float* right, int num_
 
                 std::complex<float> right_sum = 0;
                 std::complex<float> left_sum = 0;
-                float x_left = state.iir_x_delay_.GetBeforePush<0>(left_num_notch);
-                float x_right = state.iir_x_delay_.GetBeforePush<1>(right_num_notch);
 
                 auto const addition_rotation =
                     std::polar(1.0f, state.barber_phase_smoother_.Tick() * std::numbers::pi_v<float> * 2);
@@ -615,16 +620,15 @@ static void ProcessIir(dsp::DspState& state, float* left, float* right, int num_
                 auto right_rotate = rotation_once * right_channel_rotation;
 
                 for (size_t i = 0; i < num_simd_filter; ++i) {
-                    auto [l, r] =
-                        filters[i].TickCpx(x_left, x_right, left_num_notch, left_num_notch, left_rotate, right_rotate);
+                    auto [l, r] = filters[i].TickCpx(left_in, right_in, left_num_notch, right_num_notch, left_rotate,
+                                                     right_rotate);
                     left_sum += l;
                     right_sum += r;
                 }
-                state.iir_x_delay_.Push(left_in, right_in);
                 left_sum = left_sum * 0.5f + left_in * state.iir_fir_k_;
                 right_sum = right_sum * 0.5f + right_in * state.iir_fir_k_;
 
-                auto remove_positive_spectrum = state.hilbert_complex_.Tick(
+                auto remove_positive_spectrum = self.hilbert_complex_.Tick(
                     simd::Float128{left_sum.real(), left_sum.imag(), right_sum.real(), right_sum.imag()});
                 // this will mirror the positive spectrum to negative domain, forming a real value signal
                 auto damp_x =
@@ -659,8 +663,6 @@ static void Init(dsp::DspState& state, float fs) noexcept {
         self.iir_[i].Init(fs, DspParam::kInitMaxMs);
     }
 
-    state.iir_x_delay_.Init(fs, DspParam::kInitMaxMs);
-
     state.fs_ = fs;
     float const samples_need = fs * DspParam::kInitMaxMs / 1000.0f;
     self.delay_left_.Init(static_cast<size_t>(samples_need * global::kMaxCoeffLen));
@@ -683,13 +685,12 @@ static void Reset(dsp::DspState& state) noexcept {
     state.left_fb_ = 0;
     state.right_fb_ = 0;
     state.damp_.Reset();
-    state.hilbert_complex_.Reset();
+    self.hilbert_complex_.Reset();
     for (size_t i = 0; i < global::kIirMaxNumFilters / 8; ++i) {
         self.iir_[i].Reset();
     }
 
     state.last_damp_lowpass_coeff_ = state.damp_lowpass_coeff_;
-    state.iir_x_delay_.Reset();
     state.phase_ = 0;
     state.barber_phase_smoother_.Reset();
     state.barber_oscillator_.Reset();

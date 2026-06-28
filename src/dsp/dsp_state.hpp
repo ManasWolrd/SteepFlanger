@@ -11,6 +11,7 @@
 #include "global.hpp"
 #include "pluginshared/dsp/delay_line_1ch_4time.hpp"
 #include "pluginshared/dsp/one_pole_tpt.hpp"
+#include "pluginshared/dsp/stereo_iir_hilbert_cpx2.hpp"
 #include "pluginshared/dsp/stereo_iir_hilbert_cpx.hpp"
 #include "pluginshared/simd.hpp"
 
@@ -75,6 +76,9 @@ struct DspStateN {
     // iir part
     // ----------------------------------------
     com::IirNFilter<SimdT> iir_[global::kIirMaxNumFilters / simd::LaneSize<SimdT>];
+
+    // -------------------- hilbert filter --------------------
+    pluginshared::dsp::StereoIIRHilbertCpx hilbert_complex_;
 };
 
 struct DspState {
@@ -107,7 +111,6 @@ struct DspState {
     // iir
     float iir_fir_k_{};
     bool last_iir_highpass_{false};
-    com::XIirDelayLine iir_x_delay_;
 
     // delay time lfo
     float phase_{};
@@ -115,7 +118,6 @@ struct DspState {
     simd::Float128 last_delay_samples_{};
 
     // barberpole
-    pluginshared::dsp::StereoIIRHilbertDeeperCpx hilbert_complex_;
     qwqdsp_misc::ExpSmoother barber_phase_smoother_;
     qwqdsp_oscillator::VicSineOsc barber_oscillator_;
     int barber_osc_keep_amp_counter_{};
