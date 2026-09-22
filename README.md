@@ -1,4 +1,10 @@
 # steep flanger
+
+> [!IMPORTANT]
+>plugin development has moved to [dev-plugin](https://github.com/ManasWolrd/dev-plugins) repo.
+
+---
+
 steep flanger is a FIR/IIR flanger plugin.
 
 ## features
